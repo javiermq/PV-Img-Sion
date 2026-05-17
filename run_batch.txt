@@ -1,2 +1,3 @@
 python sion_dataset_download_cam11.py --month 07 --download --out data/sion
 python crop_then_project_fisheye.py   --input "data/sion/June-Aug/07/01"   --output "data/procesadas/07/01"   --cx 2000   --cy 1600   --r 800   --projection equidistant   --projected_size 128   --crop_size 128
+procesar_julio.sh
