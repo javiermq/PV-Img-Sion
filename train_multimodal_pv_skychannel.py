@@ -42,6 +42,14 @@ NUM_WORKERS = 2
 
 MODEL_OUT = "best_multimodal_pv_skychannel_prev_images.pt"
 
+# Early stopping
+EARLY_STOPPING_PATIENCE = 3
+EARLY_STOPPING_MIN_DELTA = 1e-4
+
+# Para MAPE: ignora valores reales muy cercanos a 0.
+# En PV esto es importante porque de noche o con producción muy baja el % explota.
+MAPE_MIN_Y = 100.0
+
 # Quitamos production porque es el label.
 # Quitamos windspeed porque no quieres usarlo.
 DROP_INPUT_COLUMNS = [
@@ -142,6 +150,63 @@ def fit_scalers_from_train_rows(df, sensor_cols):
     return sensor_mean, sensor_std, y_mean, y_std
 
 
+def row_has_valid_values(df, row_idx, sensor_cols):
+    sensor_values = df.loc[row_idx, sensor_cols].values.astype(np.float32)
+    y_value = df.loc[row_idx, "production"]
+
+    if not np.isfinite(sensor_values).all():
+        return False
+
+    if not np.isfinite(float(y_value)):
+        return False
+
+    return True
+
+
+def build_all_valid_samples(
+    df,
+    sensor_cols,
+    window=5,
+    max_image_age_minutes=120,
+):
+    samples = []
+    previous_image_indices = []
+
+    max_image_age = pd.Timedelta(minutes=max_image_age_minutes)
+
+    has_image = df["image_path"].apply(image_path_exists).values
+
+    for i in range(len(df)):
+        image_indices = None
+
+        if len(previous_image_indices) >= window:
+            current_ts = df.loc[i, "timestamp"]
+
+            valid_previous = [
+                idx for idx in previous_image_indices
+                if current_ts - df.loc[idx, "timestamp"] <= max_image_age
+            ]
+
+            if len(valid_previous) >= window:
+                image_indices = valid_previous[-window:]
+
+        if image_indices is not None:
+            if row_has_valid_values(df, i, sensor_cols):
+                samples.append(
+                    {
+                        "label_idx": i,
+                        "image_indices": image_indices,
+                    }
+                )
+
+        # La imagen de la fila actual se añade después,
+        # para no usar imagen del mismo timestamp como entrada.
+        if has_image[i]:
+            previous_image_indices.append(i)
+
+    return samples
+
+
 # ============================================================
 # Dataset
 # ============================================================
@@ -150,57 +215,40 @@ class PVMultimodalPrevImageDataset(Dataset):
     """
     Dataset multimodal para nowcasting PV.
 
-    Para cada fila label i:
-        y = production[i]
+    Cada sample contiene:
+        label_idx
+        image_indices
 
-        X sensores = sensores de las W filas anteriores que tengan imagen válida
-        X imágenes = imágenes de esas W filas anteriores
-
-    Restricción:
-        Las imágenes anteriores deben estar dentro de MAX_IMAGE_AGE_MINUTES.
-
-    Importante:
-        - No exige que las filas estén separadas cada 5 minutos.
-        - No exige que las W filas sean consecutivas.
-        - No exige que la fila i tenga imagen.
-        - Las imágenes usadas son estrictamente anteriores a i.
+    y = production[label_idx]
+    X sensores = sensores de image_indices
+    X imágenes = imágenes de image_indices
     """
 
     def __init__(
         self,
         df,
         sensor_cols,
-        label_start_idx,
-        label_end_idx,
+        samples,
         sensor_mean,
         sensor_std,
         y_mean,
         y_std,
         img_size=64,
-        window=5,
-        max_image_age_minutes=120,
     ):
         self.df = df.reset_index(drop=True).copy()
         self.sensor_cols = sensor_cols
-
-        self.label_start_idx = int(label_start_idx)
-        self.label_end_idx = int(label_end_idx)
+        self.samples = samples
 
         self.sensor_mean = sensor_mean
         self.sensor_std = sensor_std
         self.y_mean = y_mean
         self.y_std = y_std
 
-        self.window = window
-        self.max_image_age = pd.Timedelta(minutes=max_image_age_minutes)
-
         sensors = self.df[self.sensor_cols].values.astype(np.float32)
         y = self.df["production"].values.astype(np.float32)
 
         self.sensors = (sensors - self.sensor_mean) / self.sensor_std
         self.y = (y - self.y_mean) / self.y_std
-
-        self.has_image = self.df["image_path"].apply(image_path_exists).values
 
         self.transform = transforms.Compose([
             transforms.Resize((img_size, img_size)),
@@ -210,63 +258,6 @@ class PVMultimodalPrevImageDataset(Dataset):
                 std=[0.5],
             ),
         ])
-
-        self.samples = self._build_samples()
-
-    def _row_has_valid_values(self, row_idx):
-        sensor_values = self.df.loc[row_idx, self.sensor_cols].values.astype(np.float32)
-        y_value = self.df.loc[row_idx, "production"]
-
-        if not np.isfinite(sensor_values).all():
-            return False
-
-        if not np.isfinite(float(y_value)):
-            return False
-
-        return True
-
-    def _build_samples(self):
-        samples = []
-
-        previous_image_indices = []
-
-        for i in range(len(self.df)):
-
-            # Primero intentamos crear sample para la fila i.
-            # Las imágenes tienen que ser estrictamente anteriores.
-            is_label_row = self.label_start_idx <= i < self.label_end_idx
-
-            if is_label_row:
-                image_indices = None
-
-                if len(previous_image_indices) >= self.window:
-                    current_ts = self.df.loc[i, "timestamp"]
-
-                    valid_previous = [
-                        idx for idx in previous_image_indices
-                        if current_ts - self.df.loc[idx, "timestamp"] <= self.max_image_age
-                    ]
-
-                    if len(valid_previous) >= self.window:
-                        image_indices = valid_previous[-self.window:]
-
-                if image_indices is not None:
-                    values_ok = self._row_has_valid_values(i)
-
-                    if values_ok:
-                        samples.append(
-                            {
-                                "label_idx": i,
-                                "image_indices": image_indices,
-                            }
-                        )
-
-            # Después añadimos la imagen actual, para evitar usar la imagen de la
-            # misma fila como entrada del label actual.
-            if self.has_image[i]:
-                previous_image_indices.append(i)
-
-        return samples
 
     def __len__(self):
         return len(self.samples)
@@ -548,30 +539,125 @@ def evaluate(model, loader, criterion, y_mean, y_std):
     preds_all = np.concatenate(preds_all)
     y_all = np.concatenate(y_all)
 
-    mae = np.mean(np.abs(preds_all - y_all))
-    rmse = math.sqrt(np.mean((preds_all - y_all) ** 2))
+    errors = preds_all - y_all
 
-    return total_loss / len(loader.dataset), mae, rmse
+    mae = np.mean(np.abs(errors))
+    rmse = math.sqrt(np.mean(errors ** 2))
+
+    # Error relativo estable:
+    # relativo respecto a la media absoluta de la producción real en eval.
+    mean_y_abs = np.mean(np.abs(y_all))
+
+    if mean_y_abs > 1e-8:
+        mae_rel_pct = 100.0 * mae / mean_y_abs
+        rmse_rel_pct = 100.0 * rmse / mean_y_abs
+    else:
+        mae_rel_pct = float("nan")
+        rmse_rel_pct = float("nan")
+
+    # MAPE con máscara para evitar división por valores muy pequeños.
+    mask = np.abs(y_all) > MAPE_MIN_Y
+
+    if mask.sum() > 0:
+        mape_pct = np.mean(
+            np.abs((preds_all[mask] - y_all[mask]) / y_all[mask])
+        ) * 100.0
+    else:
+        mape_pct = float("nan")
+
+    return {
+        "loss": total_loss / len(loader.dataset),
+        "mae": mae,
+        "rmse": rmse,
+        "mae_rel_pct": mae_rel_pct,
+        "rmse_rel_pct": rmse_rel_pct,
+        "mape_pct": mape_pct,
+        "mean_y_abs": mean_y_abs,
+    }
 
 
 # ============================================================
-# Diagnóstico
+# Main
 # ============================================================
 
-def print_dataset_diagnostics(df, train_dataset, eval_dataset, split_idx):
-    total_rows = len(df)
-    image_rows = df["image_path"].apply(image_path_exists).sum()
-    empty_image_rows = (df["image_path"].str.strip() == "").sum()
+def main():
+    set_seed(SEED)
+
+    print(f"Usando dispositivo: {DEVICE}")
+
+    df = pd.read_csv(TSV_PATH, sep="\t")
+
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"],
+        utc=True,
+    )
+
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    df["image_path"] = df["image_path"].fillna("").astype(str)
+
+    sensor_cols = [
+        col for col in df.columns
+        if col not in DROP_INPUT_COLUMNS
+    ]
+
+    print("Columnas usadas como sensores:")
+    for col in sensor_cols:
+        print(f"  - {col}")
+
+    all_samples = build_all_valid_samples(
+        df=df,
+        sensor_cols=sensor_cols,
+        window=W,
+        max_image_age_minutes=MAX_IMAGE_AGE_MINUTES,
+    )
+
+    sample_split_idx = int(len(all_samples) * TRAIN_RATIO)
+
+    train_samples = all_samples[:sample_split_idx]
+    eval_samples = all_samples[sample_split_idx:]
+
+    train_label_indices = [s["label_idx"] for s in train_samples]
+    train_scaler_df = df.iloc[train_label_indices].reset_index(drop=True)
+
+    sensor_mean, sensor_std, y_mean, y_std = fit_scalers_from_train_rows(
+        train_scaler_df,
+        sensor_cols,
+    )
+
+    train_dataset = PVMultimodalPrevImageDataset(
+        df=df,
+        sensor_cols=sensor_cols,
+        samples=train_samples,
+        sensor_mean=sensor_mean,
+        sensor_std=sensor_std,
+        y_mean=y_mean,
+        y_std=y_std,
+        img_size=IMG_SIZE,
+    )
+
+    eval_dataset = PVMultimodalPrevImageDataset(
+        df=df,
+        sensor_cols=sensor_cols,
+        samples=eval_samples,
+        sensor_mean=sensor_mean,
+        sensor_std=sensor_std,
+        y_mean=y_mean,
+        y_std=y_std,
+        img_size=IMG_SIZE,
+    )
 
     print()
     print("Diagnóstico:")
-    print(f"Filas totales: {total_rows}")
-    print(f"Split index: {split_idx}")
-    print(f"Filas con image_path vacío: {empty_image_rows}")
-    print(f"Filas con imagen existente: {image_rows}")
+    print(f"Filas totales: {len(df)}")
+    print(f"Filas con image_path vacío: {(df['image_path'].str.strip() == '').sum()}")
+    print(f"Filas con imagen existente: {df['image_path'].apply(image_path_exists).sum()}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
+    print(f"Samples válidos totales: {len(all_samples)}")
     print(f"Samples train válidos: {len(train_dataset)}")
     print(f"Samples eval válidos: {len(eval_dataset)}")
+    print(f"y_mean train: {y_mean:.4f}")
+    print(f"y_std train: {y_std:.4f}")
 
     if len(train_dataset) > 0:
         s = train_dataset.samples[0]
@@ -604,80 +690,6 @@ def print_dataset_diagnostics(df, train_dataset, eval_dataset, split_idx):
                 f"age={age} | "
                 f"{df.loc[idx, 'image_path']}"
             )
-
-
-# ============================================================
-# Main
-# ============================================================
-
-def main():
-    set_seed(SEED)
-
-    print(f"Usando dispositivo: {DEVICE}")
-
-    df = pd.read_csv(TSV_PATH, sep="\t")
-
-    df["timestamp"] = pd.to_datetime(
-        df["timestamp"],
-        utc=True,
-    )
-
-    df = df.sort_values("timestamp").reset_index(drop=True)
-
-    df["image_path"] = df["image_path"].fillna("").astype(str)
-
-    sensor_cols = [
-        col for col in df.columns
-        if col not in DROP_INPUT_COLUMNS
-    ]
-
-    print("Columnas usadas como sensores:")
-    for col in sensor_cols:
-        print(f"  - {col}")
-
-    split_idx = int(len(df) * TRAIN_RATIO)
-
-    train_scaler_df = df.iloc[:split_idx].reset_index(drop=True)
-
-    sensor_mean, sensor_std, y_mean, y_std = fit_scalers_from_train_rows(
-        train_scaler_df,
-        sensor_cols,
-    )
-
-    train_dataset = PVMultimodalPrevImageDataset(
-        df=df,
-        sensor_cols=sensor_cols,
-        label_start_idx=0,
-        label_end_idx=split_idx,
-        sensor_mean=sensor_mean,
-        sensor_std=sensor_std,
-        y_mean=y_mean,
-        y_std=y_std,
-        img_size=IMG_SIZE,
-        window=W,
-        max_image_age_minutes=MAX_IMAGE_AGE_MINUTES,
-    )
-
-    eval_dataset = PVMultimodalPrevImageDataset(
-        df=df,
-        sensor_cols=sensor_cols,
-        label_start_idx=split_idx,
-        label_end_idx=len(df),
-        sensor_mean=sensor_mean,
-        sensor_std=sensor_std,
-        y_mean=y_mean,
-        y_std=y_std,
-        img_size=IMG_SIZE,
-        window=W,
-        max_image_age_minutes=MAX_IMAGE_AGE_MINUTES,
-    )
-
-    print_dataset_diagnostics(
-        df=df,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        split_idx=split_idx,
-    )
 
     if len(train_dataset) == 0:
         raise RuntimeError("No hay samples válidos de entrenamiento.")
@@ -724,6 +736,8 @@ def main():
     )
 
     best_rmse = float("inf")
+    best_epoch = 0
+    epochs_without_improvement = 0
 
     for epoch in range(1, EPOCHS + 1):
         print()
@@ -739,13 +753,21 @@ def main():
 
         print("Eval:")
 
-        eval_loss, eval_mae, eval_rmse = evaluate(
+        metrics = evaluate(
             model,
             eval_loader,
             criterion,
             y_mean=y_mean,
             y_std=y_std,
         )
+
+        eval_loss = metrics["loss"]
+        eval_mae = metrics["mae"]
+        eval_rmse = metrics["rmse"]
+        eval_mae_rel_pct = metrics["mae_rel_pct"]
+        eval_rmse_rel_pct = metrics["rmse_rel_pct"]
+        eval_mape_pct = metrics["mape_pct"]
+        eval_mean_y_abs = metrics["mean_y_abs"]
 
         scheduler.step(eval_rmse)
 
@@ -757,11 +779,19 @@ def main():
             f"train_loss={train_loss:.5f} | "
             f"eval_loss={eval_loss:.5f} | "
             f"eval_MAE={eval_mae:.2f} | "
-            f"eval_RMSE={eval_rmse:.2f}"
+            f"eval_RMSE={eval_rmse:.2f} | "
+            f"eval_MAE%={eval_mae_rel_pct:.2f}% | "
+            f"eval_RMSE%={eval_rmse_rel_pct:.2f}% | "
+            f"eval_MAPE@>{MAPE_MIN_Y:.0f}={eval_mape_pct:.2f}% | "
+            f"eval_mean_abs_y={eval_mean_y_abs:.2f}"
         )
 
-        if eval_rmse < best_rmse:
+        improved = eval_rmse < (best_rmse - EARLY_STOPPING_MIN_DELTA)
+
+        if improved:
             best_rmse = eval_rmse
+            best_epoch = epoch
+            epochs_without_improvement = 0
 
             torch.save(
                 {
@@ -777,18 +807,43 @@ def main():
                     "image_mode": "sky_channel_bluegreen_white",
                     "sample_mode": "previous_W_rows_with_existing_images_limited_age",
                     "drop_input_columns": DROP_INPUT_COLUMNS,
+                    "best_epoch": best_epoch,
+                    "best_rmse": best_rmse,
+                    "best_metrics": metrics,
+                    "early_stopping_patience": EARLY_STOPPING_PATIENCE,
+                    "early_stopping_min_delta": EARLY_STOPPING_MIN_DELTA,
+                    "mape_min_y": MAPE_MIN_Y,
                 },
                 MODEL_OUT,
             )
 
             print(
                 f"  Nuevo mejor modelo guardado: "
-                f"{MODEL_OUT} | RMSE={best_rmse:.2f}"
+                f"{MODEL_OUT} | "
+                f"RMSE={best_rmse:.2f} | "
+                f"RMSE%={eval_rmse_rel_pct:.2f}%"
             )
+
+        else:
+            epochs_without_improvement += 1
+            print(
+                f"  Sin mejora en RMSE: "
+                f"{epochs_without_improvement}/{EARLY_STOPPING_PATIENCE}"
+            )
+
+            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
+                print()
+                print(
+                    "Early stopping activado: "
+                    f"no mejora durante {EARLY_STOPPING_PATIENCE} epochs."
+                )
+                break
 
     print()
     print("Entrenamiento terminado.")
+    print(f"Mejor epoch: {best_epoch}")
     print(f"Mejor RMSE eval: {best_rmse:.2f}")
+    print(f"Modelo guardado en: {MODEL_OUT}")
 
 
 if __name__ == "__main__":

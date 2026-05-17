@@ -195,15 +195,15 @@ def process_image(
             cv2.imwrite(str(crop_path), crop_to_save)
 
     # 3) Proyección del recorte
-    projected = fisheye_crop_to_square(
-        crop,
-        output_size=projected_size,
-        projection=projection,
-        background_value=0
-    )
+    #projected = fisheye_crop_to_square(
+    #    crop,
+    #    output_size=projected_size,
+    #    projection=projection,
+    #    background_value=0
+    #)
 
-    proj_path = output_dir / f"{image_path.stem}_projected_{projection}.png"
-    cv2.imwrite(str(proj_path), projected)
+    #proj_path = output_dir / f"{image_path.stem}_projected_{projection}.png"
+    #cv2.imwrite(str(proj_path), projected)
 
     # 4) Debug opcional
     if debug:
