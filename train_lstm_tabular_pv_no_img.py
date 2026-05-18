@@ -4,12 +4,10 @@ import random
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 
 
 # ============================================================
@@ -18,11 +16,8 @@ from torchvision import transforms
 
 TSV_PATH = Path("data/weather_with_images.tsv")
 
-# Ventana temporal. Si tus datos son cada 5 min:
-# W=8 -> 40 minutos
+# Debe coincidir con el multimodal
 W = 8
-
-IMG_SIZE = 64
 
 BATCH_SIZE = 16
 EPOCHS = 50
@@ -39,9 +34,9 @@ torch.backends.cudnn.deterministic = False
 SEED = 42
 NUM_WORKERS = 2
 
-MODEL_OUT = "best_multimodal_lstm_weather_img_no_autoreg.pt"
-PREDICTIONS_OUT = "eval_predictions_multimodal_lstm_weather_img_no_autoreg.tsv"
-PLOT_OUT = "eval_timeline_multimodal_lstm_weather_img_no_autoreg.png"
+MODEL_OUT = "best_lstm_tabular_same_samples_as_multimodal_no_autoreg.pt"
+PREDICTIONS_OUT = "eval_predictions_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
+PLOT_OUT = "eval_timeline_lstm_tabular_same_samples_as_multimodal_no_autoreg.png"
 
 # Early stopping
 EARLY_STOPPING_PATIENCE = 8
@@ -50,20 +45,16 @@ EARLY_STOPPING_MIN_DELTA = 1e-4
 # Para MAPE: ignora valores reales muy cercanos a 0.
 MAPE_MIN_Y = 100.0
 
-# Si quieres quitar noche/producciones muy bajas del entrenamiento/evaluación.
-# Déjalo en 0.0 para usar todo.
+# Debe coincidir con el multimodal
 MIN_PRODUCTION_FOR_SAMPLE = 0.0
-
-# Edad máxima de imágenes anteriores respecto al timestamp objetivo.
 MAX_IMAGE_AGE_MINUTES = 120
 
-# Normalización MinMax de entradas y salida.
-# Se ajusta SOLO con train para evitar fuga de información.
 EPS = 1e-8
 
 # IMPORTANTE:
 # production NO se usa como input.
-# production queda SOLO como target y.
+# image_path NO se usa como input.
+# image_path SOLO se usa para construir exactamente los mismos samples que el multimodal.
 IGNORE_COLUMNS = [
     "timestamp",
     "image_path",
@@ -78,12 +69,6 @@ PREFERRED_INPUT_COLUMNS = [
     "winddirection",
     "windspeed",
 ]
-
-# Embeddings:
-# La parte tabular manda.
-# La imagen entra pequeña y con puerta suave.
-TAB_EMB_DIM = 128
-IMG_EMB_DIM = 128
 
 
 # ============================================================
@@ -100,37 +85,16 @@ def set_seed(seed=42):
 
 
 # ============================================================
-# Imagen: RGB -> canal azul/verdoso + blanco
+# Utilidades imagen
 # ============================================================
 
-def rgb_to_sky_channel(img):
-    """
-    Convierte una imagen RGB a 1 canal que prioriza:
-      - brillo general
-      - azul/verdoso
-      - blanco/nubes
-
-    Devuelve PIL Image en escala de grises.
-    """
-    img = img.convert("RGB")
-    arr = np.asarray(img).astype(np.float32) / 255.0
-
-    r = arr[:, :, 0]
-    g = arr[:, :, 1]
-    b = arr[:, :, 2]
-
-    brightness = (r + g + b) / 3.0
-    blue_green = (g + b) / 2.0 - 0.5 * r
-    color_std = np.std(arr, axis=2)
-    whiteness = brightness - color_std
-
-    channel = 0.60 * brightness + 0.30 * blue_green + 0.10 * whiteness
-    channel = np.clip(channel, 0.0, 1.0)
-
-    return Image.fromarray((channel * 255).astype(np.uint8))
-
-
 def image_path_exists(p):
+    """
+    Mismo criterio que el multimodal.
+
+    Aquí NO se cargan imágenes.
+    Solo se comprueba si existen para construir los mismos samples.
+    """
     if not isinstance(p, str):
         return False
 
@@ -233,7 +197,8 @@ def print_correlations(df, input_cols):
 
 
 # ============================================================
-# Samples multimodales
+# Construcción de samples
+# MISMA QUE MULTIMODAL
 # ============================================================
 
 def row_has_valid_values(df, row_idx, input_cols):
@@ -256,13 +221,16 @@ def build_multimodal_samples(
     max_image_age_minutes,
 ):
     """
+    Esta función es intencionadamente la misma lógica que el multimodal.
+
     Para cada label_idx:
       - y = production[label_idx]
-      - X_tab = variables tabulares en las W filas anteriores: label_idx-W ... label_idx-1
+      - X_tab = input_cols en las W filas anteriores: label_idx-W ... label_idx-1
       - X_img = W imágenes anteriores existentes, nunca la imagen del mismo timestamp actual
 
-    IMPORTANTE:
-      production NO está en input_cols.
+    En esta LSTM tabular NO se usarán las imágenes como input,
+    pero sí usamos image_indices para garantizar que son exactamente
+    los mismos samples que el multimodal.
     """
     samples = []
     previous_image_indices = []
@@ -326,10 +294,10 @@ def build_multimodal_samples(
 
 
 # ============================================================
-# Dataset
+# Dataset LSTM tabular usando samples multimodales
 # ============================================================
 
-class MultimodalPVForecastDataset(Dataset):
+class TabularSameSamplesAsMultimodalDataset(Dataset):
     def __init__(
         self,
         df,
@@ -339,7 +307,6 @@ class MultimodalPVForecastDataset(Dataset):
         x_range,
         y_min,
         y_range,
-        img_size=64,
     ):
         self.df = df.reset_index(drop=True).copy()
         self.input_cols = input_cols
@@ -356,14 +323,6 @@ class MultimodalPVForecastDataset(Dataset):
         self.x = minmax_x(x_raw, self.x_min, self.x_range).astype(np.float32)
         self.y = minmax_y(y_raw, self.y_min, self.y_range).astype(np.float32)
 
-        self.img_transform = transforms.Compose(
-            [
-                transforms.Resize((img_size, img_size)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5], std=[0.5]),
-            ]
-        )
-
     def __len__(self):
         return len(self.samples)
 
@@ -371,44 +330,32 @@ class MultimodalPVForecastDataset(Dataset):
         sample = self.samples[idx]
 
         tab_indices = sample["tab_indices"]
-        image_indices = sample["image_indices"]
         label_idx = sample["label_idx"]
 
-        x_tab = self.x[tab_indices]
+        # Exactamente la misma ventana tabular que el multimodal.
+        # NO usa production.
+        # NO usa imágenes.
+        x_window = self.x[tab_indices]
+
         y = self.y[label_idx]
 
-        image_paths = self.df.iloc[image_indices]["image_path"].tolist()
-
-        imgs = []
-
-        for p in image_paths:
-            img = Image.open(p)
-            img = rgb_to_sky_channel(img)
-            img = self.img_transform(img)
-            imgs.append(img)
-
-        imgs = torch.stack(imgs, dim=0)
-        # imgs: [W, 1, IMG_SIZE, IMG_SIZE]
-
         return (
-            torch.tensor(x_tab, dtype=torch.float32),
-            imgs,
+            torch.tensor(x_window, dtype=torch.float32),
             torch.tensor(y, dtype=torch.float32),
         )
 
 
 # ============================================================
-# Encoder tabular: misma filosofía LSTM pura
+# Modelo LSTM puro
 # ============================================================
 
-class TabularLSTMEncoder(nn.Module):
+class PureLSTMRegressor(nn.Module):
     def __init__(
         self,
         num_features,
         hidden_size=128,
         num_layers=2,
         dropout=0.2,
-        emb_dim=128,
     ):
         super().__init__()
 
@@ -420,153 +367,19 @@ class TabularLSTMEncoder(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
         )
 
-        self.proj = nn.Sequential(
-            nn.Linear(hidden_size, emb_dim),
+        self.regressor = nn.Sequential(
+            nn.Linear(hidden_size, 64),
             nn.ReLU(),
-            nn.Dropout(0.10),
+            nn.Dropout(0.2),
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
         # x: [B, W, C]
         out, _ = self.lstm(x)
         last = out[:, -1, :]
-        emb = self.proj(last)
-        return emb
-
-
-# ============================================================
-# Encoder visual pequeño
-# ============================================================
-
-class GentleImageEncoder(nn.Module):
-    def __init__(
-        self,
-        img_emb_dim=32,
-        lstm_hidden=64,
-    ):
-        super().__init__()
-
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(16),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(32),
-            nn.MaxPool2d(2),
-
-            nn.AdaptiveAvgPool2d((1, 1)),
-        )
-
-        self.lstm = nn.LSTM(
-            input_size=32,
-            hidden_size=lstm_hidden,
-            num_layers=1,
-            batch_first=True,
-            dropout=0.0,
-        )
-
-        self.proj = nn.Sequential(
-            nn.Linear(lstm_hidden, img_emb_dim),
-            nn.ReLU(),
-            nn.Dropout(0.10),
-        )
-
-    def forward(self, imgs):
-        # imgs: [B, W, 1, H, W]
-        b, t, c, h, w = imgs.shape
-
-        x = imgs.reshape(b * t, c, h, w)
-        x = self.cnn(x)
-        x = x.reshape(b, t, 32)
-
-        out, _ = self.lstm(x)
-        last = out[:, -1, :]
-
-        img_emb = self.proj(last)
-        return img_emb
-
-
-# ============================================================
-# Modelo multimodal suave
-# ============================================================
-
-class GentleMultimodalPVModel(nn.Module):
-    def __init__(
-        self,
-        num_features,
-        tab_emb_dim=128,
-        img_emb_dim=32,
-    ):
-        super().__init__()
-
-        self.tab_encoder = TabularLSTMEncoder(
-            num_features=num_features,
-            hidden_size=128,
-            num_layers=2,
-            dropout=0.2,
-            emb_dim=tab_emb_dim,
-        )
-
-        self.img_encoder = GentleImageEncoder(
-            img_emb_dim=img_emb_dim,
-            lstm_hidden=64,
-        )
-
-        # Proyectamos la imagen pequeña al espacio tabular.
-        self.img_to_tab = nn.Sequential(
-            nn.Linear(img_emb_dim, tab_emb_dim),
-            nn.Tanh(),
-        )
-
-        # Puerta aprendible: permite que el modelo use imagen,
-        # pero no la deja dominar de golpe.
-        self.img_gate = nn.Sequential(
-            nn.Linear(tab_emb_dim + img_emb_dim, tab_emb_dim),
-            nn.Sigmoid(),
-        )
-
-        # Fusión inicial para probar:
-        # concat + multiplicación.
-        # No meto abs(tab-img) todavía para no sobredimensionar la rama visual.
-        fusion_dim = tab_emb_dim * 3
-
-        self.regressor = nn.Sequential(
-            nn.Linear(fusion_dim, 128),
-            nn.ReLU(),
-            nn.Dropout(0.25),
-
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(0.15),
-
-            nn.Linear(64, 1),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, x_tab, imgs):
-        tab_emb = self.tab_encoder(x_tab)
-        img_small = self.img_encoder(imgs)
-
-        img_proj = self.img_to_tab(img_small)
-
-        gate_input = torch.cat([tab_emb, img_small], dim=1)
-        gate = self.img_gate(gate_input)
-
-        img_soft = gate * img_proj
-
-        fusion = torch.cat(
-            [
-                tab_emb,
-                img_soft,
-                tab_emb * img_soft,
-            ],
-            dim=1,
-        )
-
-        y_hat = self.regressor(fusion).squeeze(1)
+        y_hat = self.regressor(last).squeeze(1)
         return y_hat
 
 
@@ -579,17 +392,16 @@ def train_one_epoch(model, loader, optimizer, criterion):
 
     total_loss = 0.0
 
-    for batch_idx, (x_tab, imgs, y) in enumerate(loader):
+    for batch_idx, (x, y) in enumerate(loader):
         if batch_idx % 20 == 0:
             print(f"  batch {batch_idx}/{len(loader)}", flush=True)
 
-        x_tab = x_tab.to(DEVICE, non_blocking=True)
-        imgs = imgs.to(DEVICE, non_blocking=True)
+        x = x.to(DEVICE, non_blocking=True)
         y = y.to(DEVICE, non_blocking=True)
 
         optimizer.zero_grad()
 
-        pred = model(x_tab, imgs)
+        pred = model(x)
         loss = criterion(pred, y)
 
         loss.backward()
@@ -601,7 +413,7 @@ def train_one_epoch(model, loader, optimizer, criterion):
 
         optimizer.step()
 
-        total_loss += loss.item() * x_tab.size(0)
+        total_loss += loss.item() * x.size(0)
 
     return total_loss / len(loader.dataset)
 
@@ -614,18 +426,17 @@ def evaluate(model, loader, criterion, y_min, y_range, return_arrays=False):
     preds_all = []
     y_all = []
 
-    for batch_idx, (x_tab, imgs, y) in enumerate(loader):
+    for batch_idx, (x, y) in enumerate(loader):
         if batch_idx % 20 == 0:
             print(f"  eval batch {batch_idx}/{len(loader)}", flush=True)
 
-        x_tab = x_tab.to(DEVICE, non_blocking=True)
-        imgs = imgs.to(DEVICE, non_blocking=True)
+        x = x.to(DEVICE, non_blocking=True)
         y = y.to(DEVICE, non_blocking=True)
 
-        pred = model(x_tab, imgs)
+        pred = model(x)
         loss = criterion(pred, y)
 
-        total_loss += loss.item() * x_tab.size(0)
+        total_loss += loss.item() * x.size(0)
 
         pred_real = inverse_minmax_y(
             pred.detach().cpu().numpy(),
@@ -692,7 +503,7 @@ def evaluate_mean_train_baseline(loader, y_min, y_range, train_y_mean_real):
     preds_all = []
     y_all = []
 
-    for x_tab, imgs, y in loader:
+    for x, y in loader:
         y_real = inverse_minmax_y(
             y.cpu().numpy(),
             y_min,
@@ -795,10 +606,11 @@ def main():
     print(f"Usando dispositivo: {DEVICE}")
     print(f"Leyendo: {TSV_PATH}")
     print(f"W: {W}")
-    print(f"IMG_SIZE: {IMG_SIZE}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
-    print("Modo: multimodal weather + imágenes")
+    print("Modo: LSTM tabular con EXACTAMENTE los mismos samples que el multimodal")
     print("production como input: NO")
+    print("imágenes como input: NO")
+    print("image_path usado solo para construir los mismos samples: SÍ")
 
     df = pd.read_csv(TSV_PATH, sep="\t")
 
@@ -852,10 +664,14 @@ def main():
     print(f"Filas eliminadas: {before - after}")
     print(f"Filas con image_path vacío: {(df['image_path'].str.strip() == '').sum()}")
     print(f"Filas con imagen existente: {df['image_path'].apply(image_path_exists).sum()}")
+    print(f"W: {W}")
+    print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
     print(f"MIN_PRODUCTION_FOR_SAMPLE: {MIN_PRODUCTION_FOR_SAMPLE}")
 
     print_correlations(df, input_cols)
 
+    # CLAVE:
+    # Usamos la MISMA función de samples que el multimodal.
     all_samples = build_multimodal_samples(
         df=df,
         input_cols=input_cols,
@@ -865,8 +681,8 @@ def main():
 
     if len(all_samples) == 0:
         raise RuntimeError(
-            "No hay samples multimodales válidos. "
-            "Revisa image_path, W o MAX_IMAGE_AGE_MINUTES."
+            "No hay samples válidos. "
+            "Revisa image_path, W, MAX_IMAGE_AGE_MINUTES o MIN_PRODUCTION_FOR_SAMPLE."
         )
 
     sample_split_idx = int(len(all_samples) * TRAIN_RATIO)
@@ -880,7 +696,8 @@ def main():
     if len(eval_samples) == 0:
         raise RuntimeError("No hay samples de evaluación.")
 
-    # Fittear escaladores SOLO con filas usadas como label en train.
+    # Mismo ajuste que el multimodal:
+    # escaladores SOLO con filas usadas como label en train.
     train_label_indices = [s["label_idx"] for s in train_samples]
     train_scaler_df = df.iloc[train_label_indices].reset_index(drop=True)
 
@@ -889,7 +706,7 @@ def main():
         input_cols,
     )
 
-    train_dataset = MultimodalPVForecastDataset(
+    train_dataset = TabularSameSamplesAsMultimodalDataset(
         df=df,
         input_cols=input_cols,
         samples=train_samples,
@@ -897,10 +714,9 @@ def main():
         x_range=x_range,
         y_min=y_min,
         y_range=y_range,
-        img_size=IMG_SIZE,
     )
 
-    eval_dataset = MultimodalPVForecastDataset(
+    eval_dataset = TabularSameSamplesAsMultimodalDataset(
         df=df,
         input_cols=input_cols,
         samples=eval_samples,
@@ -908,12 +724,11 @@ def main():
         x_range=x_range,
         y_min=y_min,
         y_range=y_range,
-        img_size=IMG_SIZE,
     )
 
     print()
     print("Diagnóstico samples:")
-    print(f"Samples multimodales válidos totales: {len(all_samples)}")
+    print(f"Samples válidos totales, mismos que multimodal: {len(all_samples)}")
     print(f"Samples train: {len(train_dataset)}")
     print(f"Samples eval: {len(eval_dataset)}")
     print(f"y_min train: {y_min:.4f}")
@@ -929,7 +744,7 @@ def main():
     print(f"  Label idx: {first['label_idx']}")
     print(f"  Label timestamp: {df.loc[first['label_idx'], 'timestamp']}")
     print(f"  Label production: {df.loc[first['label_idx'], 'production']:.2f}")
-    print("  Índices tabulares:")
+    print("  Índices tabulares, usados por la LSTM:")
     for idx in first["tab_indices"]:
         age = df.loc[first["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
         print(
@@ -937,7 +752,7 @@ def main():
             f"{df.loc[idx, 'timestamp']} | "
             f"age={age}"
         )
-    print("  Imágenes anteriores:")
+    print("  Imágenes anteriores, solo usadas para que el sample exista:")
     for idx in first["image_indices"]:
         age = df.loc[first["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
         print(
@@ -954,7 +769,15 @@ def main():
     print(f"  Label idx: {first_eval['label_idx']}")
     print(f"  Label timestamp: {df.loc[first_eval['label_idx'], 'timestamp']}")
     print(f"  Label production: {df.loc[first_eval['label_idx'], 'production']:.2f}")
-    print("  Imágenes anteriores:")
+    print("  Índices tabulares, usados por la LSTM:")
+    for idx in first_eval["tab_indices"]:
+        age = df.loc[first_eval["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
+        print(
+            f"    {idx} | "
+            f"{df.loc[idx, 'timestamp']} | "
+            f"age={age}"
+        )
+    print("  Imágenes anteriores, solo usadas para que el sample exista:")
     for idx in first_eval["image_indices"]:
         age = df.loc[first_eval["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
         print(
@@ -970,6 +793,7 @@ def main():
         shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=(DEVICE == "cuda"),
+        persistent_workers=(NUM_WORKERS > 0),
     )
 
     eval_loader = DataLoader(
@@ -978,6 +802,7 @@ def main():
         shuffle=False,
         num_workers=NUM_WORKERS,
         pin_memory=(DEVICE == "cuda"),
+        persistent_workers=(NUM_WORKERS > 0),
     )
 
     train_y_mean_real = float(train_scaler_df["production"].mean())
@@ -989,10 +814,11 @@ def main():
         train_y_mean_real=train_y_mean_real,
     )
 
-    model = GentleMultimodalPVModel(
+    model = PureLSTMRegressor(
         num_features=len(input_cols),
-        tab_emb_dim=TAB_EMB_DIM,
-        img_emb_dim=IMG_EMB_DIM,
+        hidden_size=128,
+        num_layers=2,
+        dropout=0.2,
     ).to(DEVICE)
 
     criterion = nn.MSELoss()
@@ -1076,12 +902,11 @@ def main():
                     "y_min": y_min,
                     "y_range": y_range,
                     "window": W,
-                    "img_size": IMG_SIZE,
-                    "model_type": "gentle_multimodal_lstm_weather_img_no_autoreg",
+                    "model_type": "pure_lstm_tabular_same_samples_as_multimodal_no_autoreg",
                     "uses_production_as_input": False,
-                    "fusion": "concat_tab_imgsoft_mul",
-                    "tab_emb_dim": TAB_EMB_DIM,
-                    "img_emb_dim": IMG_EMB_DIM,
+                    "uses_images_as_input": False,
+                    "uses_multimodal_sample_builder": True,
+                    "image_paths_used_only_for_sample_selection": True,
                     "max_image_age_minutes": MAX_IMAGE_AGE_MINUTES,
                     "best_epoch": best_epoch,
                     "best_rmse": best_rmse,

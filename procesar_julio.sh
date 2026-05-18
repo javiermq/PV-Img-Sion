@@ -4,8 +4,8 @@ for day in $(seq -w 1 31); do
     echo "Procesando día $day..."
 
     python crop_then_project_fisheye.py \
-      --input "data/sion/June-Aug/07/$day" \
-      --output "data/procesadas/07/$day" \
+      --input "data/sion/June-Aug/08/$day" \
+      --output "data/procesadas/08/$day" \
       --cx 2000 \
       --cy 1600 \
       --r 800 \
@@ -13,3 +13,4 @@ for day in $(seq -w 1 31); do
       --projected_size 64 \
       --crop_size 64
 done
+
