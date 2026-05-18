@@ -90,20 +90,16 @@ def set_seed(seed=42):
 
 def image_path_exists(p):
     """
-    Mismo criterio que el multimodal.
+    Criterio rápido:
+    hay imagen si image_path no está vacío.
 
-    Aquí NO se cargan imágenes.
-    Solo se comprueba si existen para construir los mismos samples.
+    NO carga la imagen.
+    NO verifica que exista en disco.
     """
     if not isinstance(p, str):
         return False
 
-    p = p.strip()
-
-    if p == "":
-        return False
-
-    return Path(p).exists()
+    return p.strip() != ""
 
 
 # ============================================================
@@ -663,7 +659,7 @@ def main():
     print(f"Filas tras dropna numérico: {after}")
     print(f"Filas eliminadas: {before - after}")
     print(f"Filas con image_path vacío: {(df['image_path'].str.strip() == '').sum()}")
-    print(f"Filas con imagen existente: {df['image_path'].apply(image_path_exists).sum()}")
+    print(f"Filas con image_path no vacío: {df['image_path'].str.strip().ne('').sum()}")
     print(f"W: {W}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
     print(f"MIN_PRODUCTION_FOR_SAMPLE: {MIN_PRODUCTION_FOR_SAMPLE}")
