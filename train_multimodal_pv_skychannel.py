@@ -995,6 +995,9 @@ def main():
         img_emb_dim=IMG_EMB_DIM,
     ).to(DEVICE)
 
+
+    print(model)
+
     criterion = nn.MSELoss()
 
     optimizer = torch.optim.Adam(
