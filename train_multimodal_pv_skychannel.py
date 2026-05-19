@@ -548,6 +548,8 @@ class GentleImageEncoder(nn.Module):
         self,
         img_emb_dim=128,
         lstm_hidden=64,
+        lstm_layers=2,
+        lstm_dropout=0.2,
     ):
         super().__init__()
 
@@ -568,9 +570,9 @@ class GentleImageEncoder(nn.Module):
         self.lstm = nn.LSTM(
             input_size=32,
             hidden_size=lstm_hidden,
-            num_layers=1,
+            num_layers=lstm_layers,
             batch_first=True,
-            dropout=0.0,
+            dropout=lstm_dropout if lstm_layers > 1 else 0.0,
         )
 
         self.proj = nn.Sequential(
@@ -614,6 +616,8 @@ class GentleMultimodalPVModel(nn.Module):
         self.img_encoder = GentleImageEncoder(
             img_emb_dim=img_emb_dim,
             lstm_hidden=64,
+            lstm_layers=2,
+            lstm_dropout=0.2,
         )
 
         # Proyectamos imagen al espacio tabular.
@@ -1369,6 +1373,9 @@ def run_one_temporal_fold(
                     "fusion": "concat_tab_imgsoft_mul",
                     "tab_emb_dim": TAB_EMB_DIM,
                     "img_emb_dim": IMG_EMB_DIM,
+                    "img_lstm_hidden": 64,
+                    "img_lstm_layers": 2,
+                    "img_lstm_dropout": 0.2,
                     "max_image_age_minutes": MAX_IMAGE_AGE_MINUTES,
                     "capacity": capacity,
                     "capacity_percentile": CAPACITY_PERCENTILE,
