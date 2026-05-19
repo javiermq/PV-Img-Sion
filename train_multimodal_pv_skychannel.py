@@ -547,7 +547,7 @@ class GentleImageEncoder(nn.Module):
     def __init__(
         self,
         img_emb_dim=128,
-        lstm_hidden=64,
+        lstm_hidden=128,
         lstm_layers=2,
         lstm_dropout=0.2,
     ):
@@ -569,14 +569,14 @@ class GentleImageEncoder(nn.Module):
 
         self.lstm = nn.LSTM(
             input_size=32 * 2 * 2,
-            hidden_size=128,
-            num_layers=2,
+            hidden_size=lstm_hidden,
+            num_layers=lstm_layers,
             batch_first=True,
-            dropout=0.2,
+            dropout=lstm_dropout if lstm_layers > 1 else 0.0,
         )
 
         self.proj = nn.Sequential(
-            nn.Linear(128, img_emb_dim),
+            nn.Linear(lstm_hidden, img_emb_dim),
             nn.ReLU(),
             nn.Dropout(0.10),
         )
@@ -587,7 +587,7 @@ class GentleImageEncoder(nn.Module):
 
         x = imgs.reshape(b * t, c, h, w)
         x = self.cnn(x)
-        x = x.reshape(b, t, 32)
+        x = x.reshape(b, t, 32 * 2 * 2)
 
         out, _ = self.lstm(x)
         last = out[:, -1, :]
@@ -615,7 +615,7 @@ class GentleMultimodalPVModel(nn.Module):
 
         self.img_encoder = GentleImageEncoder(
             img_emb_dim=img_emb_dim,
-            lstm_hidden=64,
+            lstm_hidden=128,
             lstm_layers=2,
             lstm_dropout=0.2,
         )
