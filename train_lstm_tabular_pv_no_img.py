@@ -953,6 +953,444 @@ def save_eval_timeline_plot(timestamps, y_true, y_pred, out_path):
 
 
 # ============================================================
+# Cross-validation temporal por escenas/folds
+# ============================================================
+
+# 5 escenas temporales ordenadas.
+N_FOLDS = 5
+
+CV_SUMMARY_OUT = "cv5_temporal_scene_metrics_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
+CV_ALL_PREDICTIONS_OUT = "cv5_temporal_all_predictions_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
+
+
+def make_fold_paths(fold_id):
+    fold_tag = f"fold_{fold_id:02d}"
+
+    model_out = f"{fold_tag}_{MODEL_OUT}"
+    predictions_out = f"{fold_tag}_{PREDICTIONS_OUT}"
+    plot_out = f"{fold_tag}_{PLOT_OUT}"
+
+    return model_out, predictions_out, plot_out
+
+
+def run_one_temporal_fold(
+    fold_id,
+    df,
+    input_cols,
+    all_samples,
+    train_samples,
+    eval_samples,
+):
+    print()
+    print("=" * 80)
+    print(f"ESCENA TEMPORAL / FOLD {fold_id:02d}/{N_FOLDS}")
+    print("=" * 80)
+
+    if len(train_samples) == 0:
+        raise RuntimeError(f"Fold {fold_id}: no hay samples de entrenamiento.")
+
+    if len(eval_samples) == 0:
+        raise RuntimeError(f"Fold {fold_id}: no hay samples de evaluación.")
+
+    model_out, predictions_out, plot_out = make_fold_paths(fold_id)
+
+    train_label_indices = [s["label_idx"] for s in train_samples]
+    eval_label_indices = [s["label_idx"] for s in eval_samples]
+
+    train_scaler_df = df.iloc[train_label_indices].reset_index(drop=True)
+
+    x_min, x_range, y_min, y_range = fit_minmax(
+        train_scaler_df,
+        input_cols,
+    )
+
+    train_dataset = TabularSameSamplesAsMultimodalDataset(
+        df=df,
+        input_cols=input_cols,
+        samples=train_samples,
+        x_min=x_min,
+        x_range=x_range,
+        y_min=y_min,
+        y_range=y_range,
+    )
+
+    eval_dataset = TabularSameSamplesAsMultimodalDataset(
+        df=df,
+        input_cols=input_cols,
+        samples=eval_samples,
+        x_min=x_min,
+        x_range=x_range,
+        y_min=y_min,
+        y_range=y_range,
+    )
+
+    eval_timestamps = df.loc[eval_label_indices, "timestamp"].values
+    train_timestamps = df.loc[train_label_indices, "timestamp"].values
+
+    eval_start = pd.to_datetime(eval_timestamps.min())
+    eval_end = pd.to_datetime(eval_timestamps.max())
+    train_start = pd.to_datetime(train_timestamps.min())
+    train_end = pd.to_datetime(train_timestamps.max())
+
+    print()
+    print("Diagnóstico fold temporal:")
+    print(f"  Samples totales: {len(all_samples)}")
+    print(f"  Samples train: {len(train_dataset)}")
+    print(f"  Samples eval: {len(eval_dataset)}")
+    print(f"  Train desde: {train_start} hasta {train_end}")
+    print(f"  Eval  desde: {eval_start} hasta {eval_end}")
+    print(f"  y_min train: {y_min:.4f}")
+    print(f"  y_range train: {y_range:.4f}")
+    print(f"  y_max train: {y_min + y_range:.4f}")
+    print(f"  x_min train: {x_min}")
+    print(f"  x_range train: {x_range}")
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        pin_memory=(DEVICE == "cuda"),
+        persistent_workers=(NUM_WORKERS > 0),
+    )
+
+    eval_loader = DataLoader(
+        eval_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        pin_memory=(DEVICE == "cuda"),
+        persistent_workers=(NUM_WORKERS > 0),
+    )
+
+    train_y_mean_real = float(train_scaler_df["production"].mean())
+
+    mean_baseline_metrics = evaluate_mean_train_baseline(
+        eval_loader,
+        y_min=y_min,
+        y_range=y_range,
+        train_y_mean_real=train_y_mean_real,
+    )
+
+    # Semilla distinta pero reproducible por fold.
+    set_seed(SEED + fold_id)
+
+    model = PureLSTMRegressor(
+        num_features=len(input_cols),
+        hidden_size=128,
+        num_layers=2,
+        dropout=0.2,
+    ).to(DEVICE)
+
+    criterion = nn.MSELoss()
+
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=LR,
+        weight_decay=1e-5,
+    )
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=5,
+    )
+
+    best_rmse = float("inf")
+    best_epoch = 0
+    best_metrics = None
+    epochs_without_improvement = 0
+
+    for epoch in range(1, EPOCHS + 1):
+        print()
+        print(f"Fold {fold_id:02d} | Epoch {epoch:03d}/{EPOCHS}")
+        print("Train:")
+
+        train_loss = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+        )
+
+        print("Eval:")
+
+        metrics = evaluate(
+            model,
+            eval_loader,
+            criterion,
+            y_min=y_min,
+            y_range=y_range,
+        )
+
+        eval_loss = metrics["loss"]
+        eval_mae = metrics["mae"]
+        eval_rmse = metrics["rmse"]
+        eval_mae_rel_pct = metrics["mae_rel_pct"]
+        eval_rmse_rel_pct = metrics["rmse_rel_pct"]
+        eval_nmae_capacity_pct = metrics["nmae_capacity_pct"]
+        eval_nrmse_capacity_pct = metrics["nrmse_capacity_pct"]
+        eval_mape_pct = metrics["mape_1000_pct"]
+        eval_mape_10pct_capacity_pct = metrics["mape_10pct_capacity_pct"]
+        eval_mape_10pct_capacity_threshold = metrics["mape_10pct_capacity_threshold"]
+        eval_mean_y_abs = metrics["mean_y_abs"]
+
+        scheduler.step(eval_rmse)
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        print(
+            f"Fold {fold_id:02d} | "
+            f"Epoch {epoch:03d} | "
+            f"lr={current_lr:.2e} | "
+            f"train_loss={train_loss:.5f} | "
+            f"eval_loss={eval_loss:.5f} | "
+            f"eval_MAE={eval_mae:.2f} | "
+            f"eval_RMSE={eval_rmse:.2f} | "
+            f"eval_MAE%mean={eval_mae_rel_pct:.2f}% | "
+            f"eval_RMSE%mean={eval_rmse_rel_pct:.2f}% | "
+            f"eval_nMAE/cap={eval_nmae_capacity_pct:.2f}% | "
+            f"eval_nRMSE/cap={eval_nrmse_capacity_pct:.2f}% | "
+            f"eval_MAPE@>{MAPE_MIN_Y:.0f}={eval_mape_pct:.2f}% | "
+            f"eval_MAPE@>10%cap(>{eval_mape_10pct_capacity_threshold:.0f})="
+            f"{eval_mape_10pct_capacity_pct:.2f}% | "
+            f"eval_mean_abs_y={eval_mean_y_abs:.2f}"
+        )
+
+        improved = eval_rmse < (best_rmse - EARLY_STOPPING_MIN_DELTA)
+
+        if improved:
+            best_rmse = eval_rmse
+            best_epoch = epoch
+            best_metrics = metrics.copy()
+            epochs_without_improvement = 0
+
+            # Evitamos guardar arrays grandes por seguridad.
+            best_metrics_to_save = {
+                k: v
+                for k, v in best_metrics.items()
+                if k not in ["preds", "y_true"]
+            }
+
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "input_cols": input_cols,
+                    "x_min": x_min,
+                    "x_range": x_range,
+                    "y_min": y_min,
+                    "y_range": y_range,
+                    "window": W,
+                    "model_type": "pure_lstm_tabular_same_samples_as_multimodal_no_autoreg_cv5_temporal",
+                    "fold_id": fold_id,
+                    "n_folds": N_FOLDS,
+                    "uses_production_as_input": False,
+                    "uses_images_as_input": False,
+                    "uses_multimodal_sample_builder": True,
+                    "image_paths_used_only_for_sample_selection": True,
+                    "max_image_age_minutes": MAX_IMAGE_AGE_MINUTES,
+                    "capacity": CAPACITY,
+                    "capacity_percentile": CAPACITY_PERCENTILE,
+                    "best_epoch": best_epoch,
+                    "best_rmse": best_rmse,
+                    "best_metrics": best_metrics_to_save,
+                    "mean_baseline_metrics": mean_baseline_metrics,
+                    "early_stopping_patience": EARLY_STOPPING_PATIENCE,
+                    "early_stopping_min_delta": EARLY_STOPPING_MIN_DELTA,
+                    "mape_min_y": MAPE_MIN_Y,
+                    "min_production_for_sample": MIN_PRODUCTION_FOR_SAMPLE,
+                    "train_sample_count": len(train_samples),
+                    "eval_sample_count": len(eval_samples),
+                    "eval_start": str(eval_start),
+                    "eval_end": str(eval_end),
+                },
+                model_out,
+            )
+
+            print(
+                f"  Nuevo mejor modelo fold {fold_id:02d}: "
+                f"{model_out} | "
+                f"RMSE={best_rmse:.2f} | "
+                f"RMSE%mean={eval_rmse_rel_pct:.2f}% | "
+                f"nRMSE/cap={eval_nrmse_capacity_pct:.2f}%"
+            )
+
+        else:
+            epochs_without_improvement += 1
+            print(
+                f"  Sin mejora en RMSE: "
+                f"{epochs_without_improvement}/{EARLY_STOPPING_PATIENCE}"
+            )
+
+            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
+                print()
+                print(
+                    "Early stopping activado: "
+                    f"no mejora durante {EARLY_STOPPING_PATIENCE} epochs."
+                )
+                break
+
+    print()
+    print(f"Cargando mejor modelo del fold {fold_id:02d} para guardar predicciones...")
+
+    checkpoint = torch.load(
+        model_out,
+        map_location=DEVICE,
+        weights_only=False,
+    )
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    final_metrics = evaluate(
+        model,
+        eval_loader,
+        criterion,
+        y_min=y_min,
+        y_range=y_range,
+        return_arrays=True,
+    )
+
+    pred_df = pd.DataFrame(
+        {
+            "fold": fold_id,
+            "temporal_scene": f"fold_{fold_id:02d}",
+            "eval_start": str(eval_start),
+            "eval_end": str(eval_end),
+            "timestamp": eval_timestamps,
+            "y_true": final_metrics["y_true"],
+            "y_pred": final_metrics["preds"],
+            "error": final_metrics["preds"] - final_metrics["y_true"],
+            "abs_error": np.abs(final_metrics["preds"] - final_metrics["y_true"]),
+            "capacity": final_metrics["capacity"],
+            "abs_error_pct_capacity": (
+                100.0
+                * np.abs(final_metrics["preds"] - final_metrics["y_true"])
+                / final_metrics["capacity"]
+            ),
+        }
+    )
+
+    pred_df.to_csv(predictions_out, sep="\t", index=False)
+    print(f"Predicciones fold {fold_id:02d} guardadas en: {predictions_out}")
+
+    save_eval_timeline_plot(
+        timestamps=eval_timestamps,
+        y_true=final_metrics["y_true"],
+        y_pred=final_metrics["preds"],
+        out_path=plot_out,
+    )
+
+    if best_metrics is None:
+        # Por seguridad, aunque debería existir porque la primera epoch mejora desde inf.
+        best_metrics = final_metrics
+
+    result = {
+        "fold": fold_id,
+        "temporal_scene": f"fold_{fold_id:02d}",
+        "eval_start": str(eval_start),
+        "eval_end": str(eval_end),
+        "train_samples": len(train_samples),
+        "eval_samples": len(eval_samples),
+        "capacity": float(CAPACITY),
+        "best_epoch": best_epoch,
+
+        # Métricas del mejor checkpoint durante entrenamiento.
+        "best_eval_loss": best_metrics["loss"],
+        "best_eval_mae": best_metrics["mae"],
+        "best_eval_rmse": best_metrics["rmse"],
+        "best_eval_mae_pct_mean": best_metrics["mae_rel_pct"],
+        "best_eval_rmse_pct_mean": best_metrics["rmse_rel_pct"],
+        "best_eval_nmae_capacity_pct": best_metrics["nmae_capacity_pct"],
+        "best_eval_nrmse_capacity_pct": best_metrics["nrmse_capacity_pct"],
+        "best_eval_mape_1000_pct": best_metrics["mape_1000_pct"],
+        "best_eval_mape_10pct_capacity_pct": best_metrics["mape_10pct_capacity_pct"],
+        "best_eval_mean_y_abs": best_metrics["mean_y_abs"],
+
+        # Baseline de media train para comparar.
+        "baseline_mae": mean_baseline_metrics["mae"],
+        "baseline_rmse": mean_baseline_metrics["rmse"],
+        "baseline_mae_pct_mean": mean_baseline_metrics["mae_rel_pct"],
+        "baseline_rmse_pct_mean": mean_baseline_metrics["rmse_rel_pct"],
+        "baseline_nmae_capacity_pct": mean_baseline_metrics["nmae_capacity_pct"],
+        "baseline_nrmse_capacity_pct": mean_baseline_metrics["nrmse_capacity_pct"],
+        "baseline_mape_1000_pct": mean_baseline_metrics["mape_1000_pct"],
+        "baseline_mape_10pct_capacity_pct": mean_baseline_metrics["mape_10pct_capacity_pct"],
+
+        "model_out": model_out,
+        "predictions_out": predictions_out,
+        "plot_out": plot_out,
+    }
+
+    print()
+    print(f"Fold {fold_id:02d} terminado.")
+    print(f"  Eval: {eval_start} -> {eval_end}")
+    print(f"  Mejor epoch: {best_epoch}")
+    print(f"  Mejor RMSE eval: {best_rmse:.2f}")
+    print(f"  Modelo guardado en: {model_out}")
+    print(f"  Predicciones guardadas en: {predictions_out}")
+    print(f"  Plot guardado en: {plot_out}")
+
+    return result, pred_df
+
+
+def add_mean_std_rows(summary_df):
+    metric_cols = [
+        "best_eval_mae",
+        "best_eval_rmse",
+        "best_eval_mae_pct_mean",
+        "best_eval_rmse_pct_mean",
+        "best_eval_nmae_capacity_pct",
+        "best_eval_nrmse_capacity_pct",
+        "best_eval_mape_1000_pct",
+        "best_eval_mape_10pct_capacity_pct",
+        "baseline_mae",
+        "baseline_rmse",
+        "baseline_mae_pct_mean",
+        "baseline_rmse_pct_mean",
+        "baseline_nmae_capacity_pct",
+        "baseline_nrmse_capacity_pct",
+        "baseline_mape_1000_pct",
+        "baseline_mape_10pct_capacity_pct",
+    ]
+
+    rows = []
+
+    mean_row = {
+        "fold": "mean",
+        "temporal_scene": "mean",
+        "eval_start": "",
+        "eval_end": "",
+        "train_samples": summary_df["train_samples"].mean(),
+        "eval_samples": summary_df["eval_samples"].mean(),
+        "capacity": summary_df["capacity"].mean(),
+        "best_epoch": summary_df["best_epoch"].mean(),
+    }
+
+    std_row = {
+        "fold": "std",
+        "temporal_scene": "std",
+        "eval_start": "",
+        "eval_end": "",
+        "train_samples": summary_df["train_samples"].std(ddof=1),
+        "eval_samples": summary_df["eval_samples"].std(ddof=1),
+        "capacity": summary_df["capacity"].std(ddof=1),
+        "best_epoch": summary_df["best_epoch"].std(ddof=1),
+    }
+
+    for col in metric_cols:
+        mean_row[col] = summary_df[col].mean()
+        std_row[col] = summary_df[col].std(ddof=1)
+
+    rows.append(mean_row)
+    rows.append(std_row)
+
+    stats_df = pd.DataFrame(rows)
+    summary_with_stats = pd.concat([summary_df, stats_df], ignore_index=True)
+
+    return summary_with_stats
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -962,8 +1400,11 @@ def main():
     print(f"Usando dispositivo: {DEVICE}")
     print(f"Leyendo: {TSV_PATH}")
     print(f"W: {W}")
+    print(f"N_FOLDS: {N_FOLDS}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
     print("Modo: LSTM tabular con EXACTAMENTE los mismos samples que el multimodal")
+    print("Validación: 5-fold cross-validation por bloques temporales ordenados")
+    print("Cada escena temporal es un 20% consecutivo de los samples.")
     print("production como input: NO")
     print("imágenes como input: NO")
     print("image_path usado solo para construir los mismos samples: SÍ")
@@ -1033,13 +1474,12 @@ def main():
     print(f"Filas con image_path vacío: {(df['image_path'].str.strip() == '').sum()}")
     print(f"Filas con image_path no vacío: {df['image_path'].str.strip().ne('').sum()}")
     print(f"W: {W}")
+    print(f"N_FOLDS: {N_FOLDS}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
     print(f"MIN_PRODUCTION_FOR_SAMPLE: {MIN_PRODUCTION_FOR_SAMPLE}")
 
     print_correlations(df, input_cols)
 
-    # CLAVE:
-    # Usamos la MISMA función de samples que el multimodal.
     all_samples = build_multimodal_samples(
         df=df,
         input_cols=input_cols,
@@ -1053,334 +1493,109 @@ def main():
             "Revisa image_path, W, MAX_IMAGE_AGE_MINUTES o MIN_PRODUCTION_FOR_SAMPLE."
         )
 
-    sample_split_idx = int(len(all_samples) * TRAIN_RATIO)
-
-    train_samples = all_samples[:sample_split_idx]
-    eval_samples = all_samples[sample_split_idx:]
-
-    if len(train_samples) == 0:
-        raise RuntimeError("No hay samples de entrenamiento.")
-
-    if len(eval_samples) == 0:
-        raise RuntimeError("No hay samples de evaluación.")
-
-    # Mismo ajuste que el multimodal:
-    # escaladores SOLO con filas usadas como label en train.
-    train_label_indices = [s["label_idx"] for s in train_samples]
-    train_scaler_df = df.iloc[train_label_indices].reset_index(drop=True)
-
-    x_min, x_range, y_min, y_range = fit_minmax(
-        train_scaler_df,
-        input_cols,
-    )
-
-    train_dataset = TabularSameSamplesAsMultimodalDataset(
-        df=df,
-        input_cols=input_cols,
-        samples=train_samples,
-        x_min=x_min,
-        x_range=x_range,
-        y_min=y_min,
-        y_range=y_range,
-    )
-
-    eval_dataset = TabularSameSamplesAsMultimodalDataset(
-        df=df,
-        input_cols=input_cols,
-        samples=eval_samples,
-        x_min=x_min,
-        x_range=x_range,
-        y_min=y_min,
-        y_range=y_range,
-    )
+    if len(all_samples) < N_FOLDS:
+        raise RuntimeError(
+            f"Hay menos samples ({len(all_samples)}) que folds ({N_FOLDS})."
+        )
 
     print()
-    print("Diagnóstico samples:")
+    print("Diagnóstico samples global:")
     print(f"Samples válidos totales, mismos que multimodal: {len(all_samples)}")
-    print(f"Samples train: {len(train_dataset)}")
-    print(f"Samples eval: {len(eval_dataset)}")
-    print(f"y_min train: {y_min:.4f}")
-    print(f"y_range train: {y_range:.4f}")
-    print(f"y_max train: {y_min + y_range:.4f}")
-    print(f"x_min train: {x_min}")
-    print(f"x_range train: {x_range}")
 
-    first = train_samples[0]
-    print()
-    print("Primer sample train:")
-    print(f"  Ventana tabular: [{first['start_idx']}, {first['end_idx']})")
-    print(f"  Label idx: {first['label_idx']}")
-    print(f"  Label timestamp: {df.loc[first['label_idx'], 'timestamp']}")
-    print(f"  Label production: {df.loc[first['label_idx'], 'production']:.2f}")
-    print("  Índices tabulares, usados por la LSTM:")
-    for idx in first["tab_indices"]:
-        age = df.loc[first["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
-        print(
-            f"    {idx} | "
-            f"{df.loc[idx, 'timestamp']} | "
-            f"age={age}"
-        )
-    print("  Imágenes anteriores, solo usadas para que el sample exista:")
-    for idx in first["image_indices"]:
-        age = df.loc[first["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
-        print(
-            f"    {idx} | "
-            f"{df.loc[idx, 'timestamp']} | "
-            f"age={age} | "
-            f"{df.loc[idx, 'image_path']}"
+    # all_samples ya está ordenado temporalmente porque df está ordenado por timestamp.
+    # Dividimos en 5 bloques consecutivos: las escenas temporales.
+    sample_indices = np.arange(len(all_samples))
+    fold_indices = np.array_split(sample_indices, N_FOLDS)
+
+    cv_results = []
+    all_pred_dfs = []
+
+    for fold_zero_idx, eval_sample_indices in enumerate(fold_indices):
+        fold_id = fold_zero_idx + 1
+
+        train_sample_indices = np.concatenate(
+            [
+                fold_indices[i]
+                for i in range(N_FOLDS)
+                if i != fold_zero_idx
+            ]
         )
 
-    first_eval = eval_samples[0]
-    print()
-    print("Primer sample eval:")
-    print(f"  Ventana tabular: [{first_eval['start_idx']}, {first_eval['end_idx']})")
-    print(f"  Label idx: {first_eval['label_idx']}")
-    print(f"  Label timestamp: {df.loc[first_eval['label_idx'], 'timestamp']}")
-    print(f"  Label production: {df.loc[first_eval['label_idx'], 'production']:.2f}")
-    print("  Índices tabulares, usados por la LSTM:")
-    for idx in first_eval["tab_indices"]:
-        age = df.loc[first_eval["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
-        print(
-            f"    {idx} | "
-            f"{df.loc[idx, 'timestamp']} | "
-            f"age={age}"
-        )
-    print("  Imágenes anteriores, solo usadas para que el sample exista:")
-    for idx in first_eval["image_indices"]:
-        age = df.loc[first_eval["label_idx"], "timestamp"] - df.loc[idx, "timestamp"]
-        print(
-            f"    {idx} | "
-            f"{df.loc[idx, 'timestamp']} | "
-            f"age={age} | "
-            f"{df.loc[idx, 'image_path']}"
+        train_sample_indices = np.sort(train_sample_indices)
+        eval_sample_indices = np.sort(eval_sample_indices)
+
+        train_samples = [all_samples[i] for i in train_sample_indices]
+        eval_samples = [all_samples[i] for i in eval_sample_indices]
+
+        result, pred_df = run_one_temporal_fold(
+            fold_id=fold_id,
+            df=df,
+            input_cols=input_cols,
+            all_samples=all_samples,
+            train_samples=train_samples,
+            eval_samples=eval_samples,
         )
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        pin_memory=(DEVICE == "cuda"),
-        persistent_workers=(NUM_WORKERS > 0),
+        cv_results.append(result)
+        all_pred_dfs.append(pred_df)
+
+    summary_df = pd.DataFrame(cv_results)
+    summary_with_stats_df = add_mean_std_rows(summary_df)
+
+    summary_with_stats_df.to_csv(
+        CV_SUMMARY_OUT,
+        sep="\t",
+        index=False,
     )
 
-    eval_loader = DataLoader(
-        eval_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        pin_memory=(DEVICE == "cuda"),
-        persistent_workers=(NUM_WORKERS > 0),
-    )
-
-    train_y_mean_real = float(train_scaler_df["production"].mean())
-
-    mean_baseline_metrics = evaluate_mean_train_baseline(
-        eval_loader,
-        y_min=y_min,
-        y_range=y_range,
-        train_y_mean_real=train_y_mean_real,
-    )
-
-    model = PureLSTMRegressor(
-        num_features=len(input_cols),
-        hidden_size=128,
-        num_layers=2,
-        dropout=0.2,
-    ).to(DEVICE)
-
-    criterion = nn.MSELoss()
-
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=LR,
-        weight_decay=1e-5,
-    )
-
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=5,
-    )
-
-    best_rmse = float("inf")
-    best_epoch = 0
-    epochs_without_improvement = 0
-
-    for epoch in range(1, EPOCHS + 1):
-        print()
-        print(f"Epoch {epoch:03d}/{EPOCHS}")
-        print("Train:")
-
-        train_loss = train_one_epoch(
-            model,
-            train_loader,
-            optimizer,
-            criterion,
-        )
-
-        print("Eval:")
-
-        metrics = evaluate(
-            model,
-            eval_loader,
-            criterion,
-            y_min=y_min,
-            y_range=y_range,
-        )
-
-        eval_loss = metrics["loss"]
-        eval_mae = metrics["mae"]
-        eval_rmse = metrics["rmse"]
-        eval_mae_rel_pct = metrics["mae_rel_pct"]
-        eval_rmse_rel_pct = metrics["rmse_rel_pct"]
-        eval_nmae_capacity_pct = metrics["nmae_capacity_pct"]
-        eval_nrmse_capacity_pct = metrics["nrmse_capacity_pct"]
-        eval_mape_pct = metrics["mape_1000_pct"]
-        eval_mape_10pct_capacity_pct = metrics["mape_10pct_capacity_pct"]
-        eval_mape_10pct_capacity_threshold = metrics["mape_10pct_capacity_threshold"]
-        eval_mean_y_abs = metrics["mean_y_abs"]
-
-        scheduler.step(eval_rmse)
-        current_lr = optimizer.param_groups[0]["lr"]
-
-        print(
-            f"Epoch {epoch:03d} | "
-            f"lr={current_lr:.2e} | "
-            f"train_loss={train_loss:.5f} | "
-            f"eval_loss={eval_loss:.5f} | "
-            f"eval_MAE={eval_mae:.2f} | "
-            f"eval_RMSE={eval_rmse:.2f} | "
-            f"eval_MAE%mean={eval_mae_rel_pct:.2f}% | "
-            f"eval_RMSE%mean={eval_rmse_rel_pct:.2f}% | "
-            f"eval_nMAE/cap={eval_nmae_capacity_pct:.2f}% | "
-            f"eval_nRMSE/cap={eval_nrmse_capacity_pct:.2f}% | "
-            f"eval_MAPE@>{MAPE_MIN_Y:.0f}={eval_mape_pct:.2f}% | "
-            f"eval_MAPE@>10%cap(>{eval_mape_10pct_capacity_threshold:.0f})="
-            f"{eval_mape_10pct_capacity_pct:.2f}% | "
-            f"eval_mean_abs_y={eval_mean_y_abs:.2f}"
-        )
-
-        improved = eval_rmse < (best_rmse - EARLY_STOPPING_MIN_DELTA)
-
-        if improved:
-            best_rmse = eval_rmse
-            best_epoch = epoch
-            epochs_without_improvement = 0
-
-            torch.save(
-                {
-                    "model_state_dict": model.state_dict(),
-                    "input_cols": input_cols,
-                    "x_min": x_min,
-                    "x_range": x_range,
-                    "y_min": y_min,
-                    "y_range": y_range,
-                    "window": W,
-                    "model_type": "pure_lstm_tabular_same_samples_as_multimodal_no_autoreg",
-                    "uses_production_as_input": False,
-                    "uses_images_as_input": False,
-                    "uses_multimodal_sample_builder": True,
-                    "image_paths_used_only_for_sample_selection": True,
-                    "max_image_age_minutes": MAX_IMAGE_AGE_MINUTES,
-                    "best_epoch": best_epoch,
-                    "best_rmse": best_rmse,
-                    "best_metrics": metrics,
-                    "mean_baseline_metrics": mean_baseline_metrics,
-                    "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-                    "early_stopping_min_delta": EARLY_STOPPING_MIN_DELTA,
-                    "mape_min_y": MAPE_MIN_Y,
-                    "min_production_for_sample": MIN_PRODUCTION_FOR_SAMPLE,
-                },
-                MODEL_OUT,
-            )
-
-            print(
-                f"  Nuevo mejor modelo guardado: "
-                f"{MODEL_OUT} | "
-                f"RMSE={best_rmse:.2f} | "
-                f"RMSE%mean={eval_rmse_rel_pct:.2f}% | "
-                f"nRMSE/cap={eval_nrmse_capacity_pct:.2f}%"
-            )
-
-        else:
-            epochs_without_improvement += 1
-            print(
-                f"  Sin mejora en RMSE: "
-                f"{epochs_without_improvement}/{EARLY_STOPPING_PATIENCE}"
-            )
-
-            if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
-                print()
-                print(
-                    "Early stopping activado: "
-                    f"no mejora durante {EARLY_STOPPING_PATIENCE} epochs."
-                )
-                break
-
-    print()
-    print("Cargando mejor modelo para guardar timeline y predicciones...")
-
-    checkpoint = torch.load(
-        MODEL_OUT,
-        map_location=DEVICE,
-        weights_only=False,
-    )
-
-    model.load_state_dict(checkpoint["model_state_dict"])
-
-    final_metrics = evaluate(
-        model,
-        eval_loader,
-        criterion,
-        y_min=y_min,
-        y_range=y_range,
-        return_arrays=True,
-    )
-
-    eval_label_indices = [s["label_idx"] for s in eval_samples]
-    eval_timestamps = df.loc[eval_label_indices, "timestamp"].values
-
-    pred_df = pd.DataFrame(
-        {
-            "timestamp": eval_timestamps,
-            "y_true": final_metrics["y_true"],
-            "y_pred": final_metrics["preds"],
-            "error": final_metrics["preds"] - final_metrics["y_true"],
-            "abs_error": np.abs(final_metrics["preds"] - final_metrics["y_true"]),
-            "capacity": final_metrics["capacity"],
-            "abs_error_pct_capacity": (
-                100.0
-                * np.abs(final_metrics["preds"] - final_metrics["y_true"])
-                / final_metrics["capacity"]
-            ),
-        }
-    )
-
-    pred_df.to_csv(PREDICTIONS_OUT, sep="\t", index=False)
-    print(f"Predicciones eval guardadas en: {PREDICTIONS_OUT}")
-
-    scene_metrics_df = save_scene_metrics_table(
-        pred_df=pred_df,
-        out_path=SCENE_METRICS_OUT,
-    )
-
-    save_eval_timeline_plot(
-        timestamps=eval_timestamps,
-        y_true=final_metrics["y_true"],
-        y_pred=final_metrics["preds"],
-        out_path=PLOT_OUT,
+    all_predictions_df = pd.concat(all_pred_dfs, ignore_index=True)
+    all_predictions_df = all_predictions_df.sort_values(["timestamp", "fold"])
+    all_predictions_df.to_csv(
+        CV_ALL_PREDICTIONS_OUT,
+        sep="\t",
+        index=False,
     )
 
     print()
-    print("Entrenamiento terminado.")
-    print(f"Mejor epoch: {best_epoch}")
-    print(f"Mejor RMSE eval: {best_rmse:.2f}")
-    print(f"Modelo guardado en: {MODEL_OUT}")
-    print(f"Predicciones guardadas en: {PREDICTIONS_OUT}")
-    print(f"Métricas por escena guardadas en: {SCENE_METRICS_OUT}")
-    print(f"Plot guardado en: {PLOT_OUT}")
+    print("=" * 80)
+    print("TABLA FINAL POR ESCENAS TEMPORALES / 5-FOLD CV")
+    print("=" * 80)
+
+    display_cols = [
+        "fold",
+        "temporal_scene",
+        "eval_start",
+        "eval_end",
+        "eval_samples",
+        "best_epoch",
+        "best_eval_mae",
+        "best_eval_rmse",
+        "best_eval_mae_pct_mean",
+        "best_eval_rmse_pct_mean",
+        "best_eval_nmae_capacity_pct",
+        "best_eval_nrmse_capacity_pct",
+        "best_eval_mape_1000_pct",
+        "best_eval_mape_10pct_capacity_pct",
+    ]
+
+    print()
+    print(summary_with_stats_df[display_cols].to_string(index=False))
+
+    print()
+    print("Definición de métricas:")
+    print("  MAE: error absoluto medio en unidades reales.")
+    print("  RMSE: penaliza más los errores grandes/picos.")
+    print("  MAE% mean: MAE relativo a producción media del fold.")
+    print("  RMSE% mean: RMSE relativo a producción media del fold.")
+    print("  nMAE/capacity: MAE relativo a CAPACITY.")
+    print("  nRMSE/capacity: RMSE relativo a CAPACITY.")
+    print(f"  MAPE@>{MAPE_MIN_Y:.0f}: MAPE solo con y_true > {MAPE_MIN_Y:.0f}.")
+    print("  MAPE@>10%capacity: MAPE solo con y_true > 10% de CAPACITY.")
+
+    print()
+    print("Cross-validation temporal terminada.")
+    print(f"Resumen por escenas temporales guardado en: {CV_SUMMARY_OUT}")
+    print(f"Predicciones de todos los folds guardadas en: {CV_ALL_PREDICTIONS_OUT}")
 
 
 if __name__ == "__main__":
