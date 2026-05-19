@@ -5,3 +5,9 @@ procesar_julio.sh
 
 python unificar_csv_10min.py
 python add_image_paths.py
+python create_images_cache.py \
+  --tsv data/weather_with_images.tsv \
+  --out data/images_cache.pt \
+  --root . \
+  --image-size 64 \
+  --mode bluewhite
