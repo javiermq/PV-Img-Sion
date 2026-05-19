@@ -889,6 +889,7 @@ def run_one_fold(
     checkpoint = torch.load(
         model_out,
         map_location=DEVICE,
+        weights_only=False,
     )
 
     model.load_state_dict(checkpoint["model_state_dict"])
