@@ -37,6 +37,7 @@ NUM_WORKERS = 2
 MODEL_OUT = "best_lstm_tabular_same_samples_as_multimodal_no_autoreg.pt"
 PREDICTIONS_OUT = "eval_predictions_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
 PLOT_OUT = "eval_timeline_lstm_tabular_same_samples_as_multimodal_no_autoreg.png"
+SCENE_METRICS_OUT = "eval_scene_metrics_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
 
 # Early stopping
 EARLY_STOPPING_PATIENCE = 8
@@ -704,6 +705,217 @@ def evaluate_mean_train_baseline(loader, y_min, y_range, train_y_mean_real):
     }
 
 
+
+# ============================================================
+# Métricas por escena de producción
+# ============================================================
+
+def assign_production_scene(y_true, capacity):
+    """
+    Escenas según nivel de producción real.
+
+    Usa y_true, no y_pred, para que la escena represente el estado real
+    del sistema fotovoltaico.
+    """
+    threshold_1000 = MAPE_MIN_Y
+    threshold_10cap = 0.10 * capacity
+    threshold_50cap = 0.50 * capacity
+
+    if y_true < threshold_1000:
+        return "01_noche_o_muy_baja_<1000"
+
+    if y_true < threshold_10cap:
+        return "02_baja_1000_a_10pct_capacity"
+
+    if y_true < threshold_50cap:
+        return "03_media_10pct_a_50pct_capacity"
+
+    return "04_alta_mayor_50pct_capacity"
+
+
+def compute_metrics_from_arrays(y_true, y_pred, capacity):
+    """
+    Calcula las mismas métricas que usamos en evaluate(),
+    pero sobre un subconjunto concreto: una escena.
+    """
+    y_true = np.asarray(y_true, dtype=np.float32)
+    y_pred = np.asarray(y_pred, dtype=np.float32)
+
+    if len(y_true) == 0:
+        return {
+            "n_samples": 0,
+            "mean_y_true": float("nan"),
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "mae_pct_mean": float("nan"),
+            "rmse_pct_mean": float("nan"),
+            "nmae_capacity_pct": float("nan"),
+            "nrmse_capacity_pct": float("nan"),
+            "mape_1000_pct": float("nan"),
+            "mape_10pct_capacity_pct": float("nan"),
+        }
+
+    errors = y_pred - y_true
+
+    # MAE: error absoluto medio en unidades reales.
+    mae = float(np.mean(np.abs(errors)))
+
+    # RMSE: penaliza más los errores grandes/picos.
+    rmse = float(math.sqrt(np.mean(errors ** 2)))
+
+    # MAE% mean / RMSE% mean: relativo a producción media de la escena.
+    mean_y_abs = float(np.mean(np.abs(y_true)))
+
+    if mean_y_abs > EPS:
+        mae_rel_pct = 100.0 * mae / mean_y_abs
+        rmse_rel_pct = 100.0 * rmse / mean_y_abs
+    else:
+        mae_rel_pct = float("nan")
+        rmse_rel_pct = float("nan")
+
+    # nMAE/capacity y nRMSE/capacity: relativo a capacidad de referencia.
+    if capacity > EPS:
+        nmae_capacity_pct = 100.0 * mae / capacity
+        nrmse_capacity_pct = 100.0 * rmse / capacity
+        threshold_10cap = 0.10 * capacity
+    else:
+        nmae_capacity_pct = float("nan")
+        nrmse_capacity_pct = float("nan")
+        threshold_10cap = float("nan")
+
+    # MAPE@>1000: solo cuando y_true supera MAPE_MIN_Y.
+    mask_1000 = np.abs(y_true) > MAPE_MIN_Y
+
+    if mask_1000.sum() > 0:
+        mape_1000_pct = float(
+            np.mean(
+                np.abs(
+                    (y_pred[mask_1000] - y_true[mask_1000])
+                    / y_true[mask_1000]
+                )
+            ) * 100.0
+        )
+    else:
+        mape_1000_pct = float("nan")
+
+    # MAPE@>10%capacity: solo cuando y_true supera 10% de capacidad.
+    if np.isfinite(threshold_10cap):
+        mask_10cap = np.abs(y_true) > threshold_10cap
+    else:
+        mask_10cap = np.zeros_like(y_true, dtype=bool)
+
+    if mask_10cap.sum() > 0:
+        mape_10pct_capacity_pct = float(
+            np.mean(
+                np.abs(
+                    (y_pred[mask_10cap] - y_true[mask_10cap])
+                    / y_true[mask_10cap]
+                )
+            ) * 100.0
+        )
+    else:
+        mape_10pct_capacity_pct = float("nan")
+
+    return {
+        "n_samples": int(len(y_true)),
+        "mean_y_true": mean_y_abs,
+        "mae": mae,
+        "rmse": rmse,
+        "mae_pct_mean": mae_rel_pct,
+        "rmse_pct_mean": rmse_rel_pct,
+        "nmae_capacity_pct": nmae_capacity_pct,
+        "nrmse_capacity_pct": nrmse_capacity_pct,
+        "mape_1000_pct": mape_1000_pct,
+        "mape_10pct_capacity_pct": mape_10pct_capacity_pct,
+    }
+
+
+def save_scene_metrics_table(pred_df, out_path):
+    """
+    Guarda una tabla final de métricas por escena de producción.
+    """
+    if "capacity" not in pred_df.columns:
+        raise RuntimeError(
+            "pred_df no tiene columna 'capacity'. "
+            "Asegúrate de estar usando la versión con métricas nMAE/capacity."
+        )
+
+    capacity = float(pred_df["capacity"].iloc[0])
+
+    pred_df = pred_df.copy()
+
+    pred_df["scene"] = pred_df["y_true"].apply(
+        lambda y: assign_production_scene(
+            y_true=float(y),
+            capacity=capacity,
+        )
+    )
+
+    rows = []
+
+    for scene, scene_df in pred_df.groupby("scene", sort=True):
+        metrics = compute_metrics_from_arrays(
+            y_true=scene_df["y_true"].values,
+            y_pred=scene_df["y_pred"].values,
+            capacity=capacity,
+        )
+
+        rows.append(
+            {
+                "scene": scene,
+                "capacity": capacity,
+                **metrics,
+            }
+        )
+
+    # Fila global para comparar con las métricas generales.
+    global_metrics = compute_metrics_from_arrays(
+        y_true=pred_df["y_true"].values,
+        y_pred=pred_df["y_pred"].values,
+        capacity=capacity,
+    )
+
+    rows.append(
+        {
+            "scene": "99_global",
+            "capacity": capacity,
+            **global_metrics,
+        }
+    )
+
+    scene_metrics_df = pd.DataFrame(rows)
+
+    scene_metrics_df.to_csv(
+        out_path,
+        sep="\t",
+        index=False,
+    )
+
+    print()
+    print("Tabla de métricas por escena:")
+    print(
+        scene_metrics_df[
+            [
+                "scene",
+                "n_samples",
+                "mean_y_true",
+                "mae",
+                "rmse",
+                "mae_pct_mean",
+                "rmse_pct_mean",
+                "nmae_capacity_pct",
+                "nrmse_capacity_pct",
+                "mape_1000_pct",
+                "mape_10pct_capacity_pct",
+            ]
+        ].to_string(index=False)
+    )
+
+    print(f"Tabla de métricas por escena guardada en: {out_path}")
+
+    return scene_metrics_df
+
+
 # ============================================================
 # Plot timeline
 # ============================================================
@@ -1149,6 +1361,11 @@ def main():
     pred_df.to_csv(PREDICTIONS_OUT, sep="\t", index=False)
     print(f"Predicciones eval guardadas en: {PREDICTIONS_OUT}")
 
+    scene_metrics_df = save_scene_metrics_table(
+        pred_df=pred_df,
+        out_path=SCENE_METRICS_OUT,
+    )
+
     save_eval_timeline_plot(
         timestamps=eval_timestamps,
         y_true=final_metrics["y_true"],
@@ -1162,6 +1379,7 @@ def main():
     print(f"Mejor RMSE eval: {best_rmse:.2f}")
     print(f"Modelo guardado en: {MODEL_OUT}")
     print(f"Predicciones guardadas en: {PREDICTIONS_OUT}")
+    print(f"Métricas por escena guardadas en: {SCENE_METRICS_OUT}")
     print(f"Plot guardado en: {PLOT_OUT}")
 
 
