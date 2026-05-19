@@ -644,7 +644,6 @@ class GentleMultimodalPVModel(nn.Module):
             nn.Dropout(0.15),
 
             nn.Linear(64, 1),
-            nn.Sigmoid(),
         )
 
     def forward(self, x_tab, imgs):
@@ -1373,7 +1372,7 @@ def run_one_temporal_fold(
                     "fusion": "concat_tab_imgsoft_mul",
                     "tab_emb_dim": TAB_EMB_DIM,
                     "img_emb_dim": IMG_EMB_DIM,
-                    "img_lstm_hidden": 64,
+                    "img_lstm_hidden": 128,
                     "img_lstm_layers": 2,
                     "img_lstm_dropout": 0.2,
                     "max_image_age_minutes": MAX_IMAGE_AGE_MINUTES,
