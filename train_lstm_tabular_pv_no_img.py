@@ -56,8 +56,6 @@ MAX_IMAGE_AGE_MINUTES = 120
 
 EPS = 1e-8
 
-IMAGE_CACHE_PATH = Path("data/images_cache.pt")
-USE_IMAGE_CACHE = True
 
 # IMPORTANTE:
 # production NO se usa como input.
@@ -225,60 +223,92 @@ def build_multimodal_samples(
     max_image_age_minutes,
 ):
     """
-    Esta función es intencionadamente la misma lógica que el multimodal.
+    Versión rápida para 3 meses / muchos samples.
 
     Para cada label_idx:
       - y = production[label_idx]
       - X_tab = input_cols en las W filas anteriores: label_idx-W ... label_idx-1
       - X_img = W imágenes anteriores existentes, nunca la imagen del mismo timestamp actual
 
-    En esta LSTM tabular NO se usarán las imágenes como input,
-    pero sí usamos image_indices para garantizar que son exactamente
-    los mismos samples que el multimodal.
+    Esta versión mantiene una cola con solo las imágenes dentro de MAX_IMAGE_AGE_MINUTES,
+    evitando reescanear todas las imágenes anteriores en cada fila.
     """
+    from collections import deque
+    import time
+
+    print()
+    print("Construyendo samples multimodales/tabulares rápidos...", flush=True)
+
     samples = []
-    previous_image_indices = []
-    max_image_age = pd.Timedelta(minutes=max_image_age_minutes)
+    previous_images = deque()
 
-    has_image = df["image_path"].apply(image_path_exists).values
+    n = len(df)
+    max_age_ns = pd.Timedelta(minutes=max_image_age_minutes).value
 
-    for label_idx in range(window, len(df)):
+    # Timestamps a int64 nanosegundos para comparar rápido.
+    timestamps_ns = df["timestamp"].astype("int64").to_numpy()
+
+    # image_path no vacío. No carga imágenes, solo comprueba que haya ruta.
+    has_image = (
+        df["image_path"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .to_numpy()
+    )
+
+    # Valores tabulares y producción como numpy.
+    x_values = df[input_cols].values.astype(np.float32)
+    y_values = df["production"].values.astype(np.float32)
+
+    # Misma lógica que antes: cada fila usada en la ventana tabular debe tener
+    # X finito y production finita.
+    valid_tab_row = (
+        np.isfinite(x_values).all(axis=1)
+        & np.isfinite(y_values)
+    )
+
+    start_time = time.time()
+
+    for label_idx in range(window, n):
+        if label_idx == window or label_idx % 5000 == 0 or label_idx == n - 1:
+            pct = 100.0 * label_idx / max(1, n - 1)
+            elapsed = time.time() - start_time
+            print(
+                f"  build samples: {label_idx}/{n - 1} "
+                f"({pct:.2f}%) | samples={len(samples)} | "
+                f"imagenes_en_ventana={len(previous_images)} | "
+                f"elapsed={elapsed/60:.1f} min",
+                flush=True,
+            )
+
+        current_ts = timestamps_ns[label_idx]
+        cutoff_ts = current_ts - max_age_ns
+
+        # Quitamos imágenes demasiado antiguas. Así previous_images solo contiene
+        # imágenes dentro de MAX_IMAGE_AGE_MINUTES.
+        while previous_images and timestamps_ns[previous_images[0]] < cutoff_ts:
+            previous_images.popleft()
+
         start_idx = label_idx - window
         end_idx = label_idx
+        y = y_values[label_idx]
 
-        tab_indices = list(range(start_idx, end_idx))
+        sample_ok = True
 
-        y = df.loc[label_idx, "production"]
+        if not np.isfinite(y):
+            sample_ok = False
 
-        if not np.isfinite(float(y)):
-            if has_image[label_idx]:
-                previous_image_indices.append(label_idx)
-            continue
+        if sample_ok and float(y) < MIN_PRODUCTION_FOR_SAMPLE:
+            sample_ok = False
 
-        if float(y) < MIN_PRODUCTION_FOR_SAMPLE:
-            if has_image[label_idx]:
-                previous_image_indices.append(label_idx)
-            continue
+        if sample_ok and not valid_tab_row[start_idx:end_idx].all():
+            sample_ok = False
 
-        valid_tabular = all(
-            row_has_valid_values(df, idx, input_cols)
-            for idx in tab_indices
-        )
-
-        if not valid_tabular:
-            if has_image[label_idx]:
-                previous_image_indices.append(label_idx)
-            continue
-
-        current_ts = df.loc[label_idx, "timestamp"]
-
-        valid_previous_images = [
-            idx for idx in previous_image_indices
-            if current_ts - df.loc[idx, "timestamp"] <= max_image_age
-        ]
-
-        if len(valid_previous_images) >= window:
-            image_indices = valid_previous_images[-window:]
+        if sample_ok and len(previous_images) >= window:
+            image_indices = list(previous_images)[-window:]
+            tab_indices = list(range(start_idx, end_idx))
 
             samples.append(
                 {
@@ -292,7 +322,14 @@ def build_multimodal_samples(
 
         # Añadimos la imagen actual DESPUÉS para evitar usar imagen del mismo timestamp.
         if has_image[label_idx]:
-            previous_image_indices.append(label_idx)
+            previous_images.append(label_idx)
+
+    elapsed = time.time() - start_time
+
+    print()
+    print("Construcción de samples terminada.", flush=True)
+    print(f"  Samples válidos: {len(samples)}", flush=True)
+    print(f"  Tiempo: {elapsed:.2f} s ({elapsed/60:.2f} min)", flush=True)
 
     return samples
 
