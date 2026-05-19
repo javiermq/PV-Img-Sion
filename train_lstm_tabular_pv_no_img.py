@@ -998,10 +998,16 @@ def run_one_temporal_fold(
 
     train_scaler_df = df.iloc[train_label_indices].reset_index(drop=True)
 
-    x_min, x_range, y_min, y_range = fit_minmax(
+    x_min, x_range, _, _ = fit_minmax(
         train_scaler_df,
         input_cols,
     )
+
+    # Target escalado por capacidad fija, no por MinMax del fold.
+    # Así y_norm = production / CAPACITY.
+    # La última capa es lineal, así que puede predecir >1 si hace falta.
+    y_min = 0.0
+    y_range = float(CAPACITY)
 
     train_dataset = TabularSameSamplesAsMultimodalDataset(
         df=df,
