@@ -40,7 +40,7 @@ PLOT_OUT = "eval_timeline_lstm_tabular_same_samples_as_multimodal_no_autoreg.png
 SCENE_METRICS_OUT = "eval_scene_metrics_lstm_tabular_same_samples_as_multimodal_no_autoreg.tsv"
 
 # Early stopping
-EARLY_STOPPING_PATIENCE = 8
+EARLY_STOPPING_PATIENCE = 4
 EARLY_STOPPING_MIN_DELTA = 1e-4
 
 # Para MAPE: ignora valores reales bajos.
