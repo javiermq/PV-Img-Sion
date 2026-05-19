@@ -1113,6 +1113,7 @@ def main():
     checkpoint = torch.load(
         MODEL_OUT,
         map_location=DEVICE,
+        weights_only=False,
     )
 
     model.load_state_dict(checkpoint["model_state_dict"])
