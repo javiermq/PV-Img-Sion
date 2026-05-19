@@ -564,19 +564,19 @@ class GentleImageEncoder(nn.Module):
             nn.BatchNorm2d(32),
             nn.MaxPool2d(2),
 
-            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.AdaptiveAvgPool2d((2, 2)),
         )
 
         self.lstm = nn.LSTM(
-            input_size=32,
-            hidden_size=lstm_hidden,
-            num_layers=lstm_layers,
+            input_size=32 * 2 * 2,
+            hidden_size=128,
+            num_layers=2,
             batch_first=True,
-            dropout=lstm_dropout if lstm_layers > 1 else 0.0,
+            dropout=0.2,
         )
 
         self.proj = nn.Sequential(
-            nn.Linear(lstm_hidden, img_emb_dim),
+            nn.Linear(128, img_emb_dim),
             nn.ReLU(),
             nn.Dropout(0.10),
         )
