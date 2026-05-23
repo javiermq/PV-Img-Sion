@@ -38,7 +38,7 @@ def rgb_to_bluewhite_channel(img_rgb_uint8):
       - alto en nubes/blancos
       - bajo en zonas oscuras/rojizas
 
-    Devuelve uint8 [H, W].
+    Devuelve uint8 [H, W] en rango 0..255.
     """
     x = img_rgb_uint8.astype(np.float32) / 255.0
 
@@ -53,9 +53,11 @@ def rgb_to_bluewhite_channel(img_rgb_uint8):
     # Componente blanca: píxeles brillantes y poco saturados
     brightness = (r + g + b) / 3.0
     chroma = np.max(x, axis=2) - np.min(x, axis=2)
+
     white = brightness * (1.0 - chroma)
     white = np.clip(white, 0.0, 1.0)
 
+    # Canal final: cielo azul/verdoso o blanco
     channel = np.maximum(blue_green, white)
     channel = np.clip(channel * 255.0, 0, 255).astype(np.uint8)
 
@@ -85,6 +87,52 @@ def load_image(path, image_size, mode):
     raise ValueError(f"Modo no soportado: {mode}")
 
 
+def save_bluewhite_visual_image(
+    path,
+    rel_path,
+    image_size,
+    out_dir,
+    base_prefix="",
+    ext="png",
+):
+    """
+    Guarda una imagen visual en escala de grises 0..255 del filtro azul/verdoso+blanco.
+
+    Ejemplo:
+      rel_path = data/procesadas/07/01/img.jpg
+      base_prefix = data/procesadas
+      out_dir = data/procesadas_bluewhite
+
+    Salida:
+      data/procesadas_bluewhite/07/01/img.png
+    """
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+
+        if im.size != (image_size, image_size):
+            im = im.resize((image_size, image_size), Image.BILINEAR)
+
+        arr = np.asarray(im, dtype=np.uint8)
+
+    ch = rgb_to_bluewhite_channel(arr)
+
+    rel = Path(rel_path)
+
+    if base_prefix != "":
+        base = Path(base_prefix)
+        try:
+            rel = rel.relative_to(base)
+        except ValueError:
+            # Si la ruta no empieza por base_prefix, mantenemos la ruta relativa original.
+            pass
+
+    out_path = Path(out_dir) / rel
+    out_path = out_path.with_suffix("." + ext.lower())
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    Image.fromarray(ch, mode="L").save(out_path)
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -98,7 +146,7 @@ def main():
     parser.add_argument(
         "--out",
         type=str,
-        default="data/images_cache.pt",
+        default="data/images_cache_bluewhite.pt",
         help="Fichero de salida .pt.",
     )
 
@@ -118,9 +166,37 @@ def main():
     parser.add_argument(
         "--mode",
         type=str,
-        default="rgb",
+        default="bluewhite",
         choices=["rgb", "bluewhite"],
         help="rgb = 3 canales; bluewhite = 1 canal azul/verdoso+blanco.",
+    )
+
+    parser.add_argument(
+        "--visualize-bluewhite-dir",
+        type=str,
+        default="data/procesadas_bluewhite",
+        help=(
+            "Si se indica, guarda una carpeta espejo con imágenes en escala de grises "
+            "0..255 representando el filtro azul/verdoso+blanco."
+        ),
+    )
+
+    parser.add_argument(
+        "--visualize-bluewhite-base",
+        type=str,
+        default="data/procesadas",
+        help=(
+            "Prefijo de ruta a eliminar para crear la carpeta espejo. "
+            "Ejemplo: data/procesadas"
+        ),
+    )
+
+    parser.add_argument(
+        "--visualize-bluewhite-ext",
+        type=str,
+        default="png",
+        choices=["png", "jpg", "jpeg"],
+        help="Extensión de las imágenes visuales generadas.",
     )
 
     parser.add_argument(
@@ -154,6 +230,12 @@ def main():
     print(f"Rutas image_path únicas no vacías: {len(paths)}")
     print(f"Modo imagen: {args.mode}")
     print(f"Image size: {args.image_size}x{args.image_size}")
+
+    if args.visualize_bluewhite_dir != "":
+        print(f"Visualización bluewhite activada: {args.visualize_bluewhite_dir}")
+        if args.visualize_bluewhite_base != "":
+            print(f"Base espejo visual: {args.visualize_bluewhite_base}")
+        print(f"Extensión visual: {args.visualize_bluewhite_ext}")
 
     existing_paths = []
     missing_paths = []
@@ -211,6 +293,16 @@ def main():
             good_paths.append(p)
             write_idx += 1
 
+            if args.visualize_bluewhite_dir != "":
+                save_bluewhite_visual_image(
+                    path=full_path,
+                    rel_path=p,
+                    image_size=args.image_size,
+                    out_dir=args.visualize_bluewhite_dir,
+                    base_prefix=args.visualize_bluewhite_base,
+                    ext=args.visualize_bluewhite_ext,
+                )
+
         except Exception as e:
             failed.append((p, str(e)))
 
@@ -225,7 +317,7 @@ def main():
 
     print()
     print(f"Imágenes cargadas correctamente: {len(good_paths)}")
-    print(f"Fallos leyendo imágenes: {len(failed)}")
+    print(f"Fallos leyendo/convirtiendo imágenes: {len(failed)}")
 
     if len(failed) > 0:
         print()
@@ -257,6 +349,11 @@ def main():
     print(f"Tamaño: {size_mb:.2f} MB")
     print(f"Tensor images: {tuple(images.shape)}")
     print(f"dtype: {images.dtype}")
+
+    if args.visualize_bluewhite_dir != "":
+        print()
+        print("Carpeta espejo visual creada correctamente.")
+        print(f"Directorio: {args.visualize_bluewhite_dir}")
 
 
 if __name__ == "__main__":
