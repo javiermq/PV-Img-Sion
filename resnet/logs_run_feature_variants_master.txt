@@ -1,0 +1,12 @@
+[2026-05-31 18:44:07] START variant=512 model=resnet18
+[2026-05-31 18:47:37] DONE variant=512 model=resnet18
+[2026-05-31 18:47:37] START variant=512 model=resnet50
+[2026-05-31 18:52:14] DONE variant=512 model=resnet50
+[2026-05-31 18:52:14] START variant=512 model=vgg16
+[2026-05-31 19:01:01] DONE variant=512 model=vgg16
+[2026-05-31 19:01:01] START variant=original model=resnet18
+[2026-05-31 19:11:11] DONE variant=original model=resnet18
+[2026-05-31 19:11:11] START variant=original model=resnet50
+[2026-05-31 19:22:35] DONE variant=original model=resnet50
+[2026-05-31 19:22:35] START variant=original model=vgg16
+[2026-05-31 19:35:38] DONE variant=original model=vgg16
