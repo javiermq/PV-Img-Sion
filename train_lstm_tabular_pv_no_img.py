@@ -71,12 +71,12 @@ IGNORE_COLUMNS = [
 ]
 
 PREFERRED_INPUT_COLUMNS = [
-    "humidity",
+    #"humidity",
     "irradiation",
-    "precipitation",
-    "temperature",
-    "winddirection",
-    "windspeed",
+    #"precipitation",
+    #"temperature",
+    #"winddirection",
+    #"windspeed",
 ]
 
 
