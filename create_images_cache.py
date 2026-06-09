@@ -64,6 +64,14 @@ def rgb_to_bluewhite_channel(img_rgb_uint8):
     return channel
 
 
+def rgb_to_gray_channel(img_rgb_uint8):
+    x = img_rgb_uint8.astype(np.float32)
+    channel = 0.299 * x[:, :, 0] + 0.587 * x[:, :, 1] + 0.114 * x[:, :, 2]
+    channel = np.clip(channel, 0, 255).astype(np.uint8)
+
+    return channel
+
+
 def load_image(path, image_size, mode):
     with Image.open(path) as im:
         im = im.convert("RGB")
@@ -95,10 +103,11 @@ def load_image(path, image_size, mode):
     raise ValueError(f"Modo no soportado: {mode}")
 
 
-def save_bluewhite_visual_image(
+def save_single_channel_visual_image(
     path,
     rel_path,
     image_size,
+    mode,
     out_dir,
     base_prefix="",
     ext="png",
@@ -122,7 +131,12 @@ def save_bluewhite_visual_image(
 
         arr = np.asarray(im, dtype=np.uint8)
 
-    ch = rgb_to_bluewhite_channel(arr)
+    if mode == "bluewhite":
+        ch = rgb_to_bluewhite_channel(arr)
+    elif mode == "gray":
+        ch = rgb_to_gray_channel(arr)
+    else:
+        raise ValueError(f"Modo visual no soportado: {mode}")
 
     rel = Path(rel_path)
 
@@ -218,6 +232,9 @@ def main():
 
     args = parser.parse_args()
 
+    if args.mode == "gray" and args.visualize_bluewhite_dir == "data/procesadas_bluewhite":
+        args.visualize_bluewhite_dir = "data/procesadas_gray"
+
     tsv_path = Path(args.tsv)
     out_path = Path(args.out)
     root = Path(args.root)
@@ -242,7 +259,7 @@ def main():
     print(f"Modo imagen: {args.mode}")
     print(f"Image size: {args.image_size}x{args.image_size}")
 
-    if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
+    if args.mode in ["bluewhite", "gray"] and args.visualize_bluewhite_dir != "":
         print(f"Visualización bluewhite activada: {args.visualize_bluewhite_dir}")
         if args.visualize_bluewhite_base != "":
             print(f"Base espejo visual: {args.visualize_bluewhite_base}")
@@ -304,11 +321,12 @@ def main():
             good_paths.append(p)
             write_idx += 1
 
-            if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
-                save_bluewhite_visual_image(
+            if args.mode in ["bluewhite", "gray"] and args.visualize_bluewhite_dir != "":
+                save_single_channel_visual_image(
                     path=full_path,
                     rel_path=p,
                     image_size=args.image_size,
+                    mode=args.mode,
                     out_dir=args.visualize_bluewhite_dir,
                     base_prefix=args.visualize_bluewhite_base,
                     ext=args.visualize_bluewhite_ext,
@@ -361,7 +379,7 @@ def main():
     print(f"Tensor images: {tuple(images.shape)}")
     print(f"dtype: {images.dtype}")
 
-    if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
+    if args.mode in ["bluewhite", "gray"] and args.visualize_bluewhite_dir != "":
         print()
         print("Carpeta espejo visual creada correctamente.")
         print(f"Directorio: {args.visualize_bluewhite_dir}")
