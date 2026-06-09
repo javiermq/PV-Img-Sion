@@ -84,6 +84,14 @@ def load_image(path, image_size, mode):
         ch = ch[None, :, :]
         return torch.from_numpy(ch.copy())
 
+    if mode == "gray":
+        # Luminancia estándar aproximada, sin favorecer explícitamente el azul.
+        x = arr.astype(np.float32)
+        ch = 0.299 * x[:, :, 0] + 0.587 * x[:, :, 1] + 0.114 * x[:, :, 2]
+        ch = np.clip(ch, 0, 255).astype(np.uint8)
+        ch = ch[None, :, :]
+        return torch.from_numpy(ch.copy())
+
     raise ValueError(f"Modo no soportado: {mode}")
 
 
@@ -167,8 +175,11 @@ def main():
         "--mode",
         type=str,
         default="bluewhite",
-        choices=["rgb", "bluewhite"],
-        help="rgb = 3 canales; bluewhite = 1 canal azul/verdoso+blanco.",
+        choices=["rgb", "bluewhite", "gray"],
+        help=(
+            "rgb = 3 canales; bluewhite = 1 canal azul/verdoso+blanco; "
+            "gray = 1 canal escala de grises por luminancia."
+        ),
     )
 
     parser.add_argument(
@@ -231,7 +242,7 @@ def main():
     print(f"Modo imagen: {args.mode}")
     print(f"Image size: {args.image_size}x{args.image_size}")
 
-    if args.visualize_bluewhite_dir != "":
+    if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
         print(f"Visualización bluewhite activada: {args.visualize_bluewhite_dir}")
         if args.visualize_bluewhite_base != "":
             print(f"Base espejo visual: {args.visualize_bluewhite_base}")
@@ -293,7 +304,7 @@ def main():
             good_paths.append(p)
             write_idx += 1
 
-            if args.visualize_bluewhite_dir != "":
+            if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
                 save_bluewhite_visual_image(
                     path=full_path,
                     rel_path=p,
@@ -350,7 +361,7 @@ def main():
     print(f"Tensor images: {tuple(images.shape)}")
     print(f"dtype: {images.dtype}")
 
-    if args.visualize_bluewhite_dir != "":
+    if args.mode == "bluewhite" and args.visualize_bluewhite_dir != "":
         print()
         print("Carpeta espejo visual creada correctamente.")
         print(f"Directorio: {args.visualize_bluewhite_dir}")

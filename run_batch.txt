@@ -12,6 +12,13 @@ python create_images_cache.py \
   --image-size 64 \
   --mode bluewhite
 
+python create_images_cache.py \
+  --tsv data/weather_with_images.tsv \
+  --out data/images_cache_gray.pt \
+  --root . \
+  --image-size 64 \
+  --mode gray
+
 
 #python create_images_cache.py \
   --tsv data/weather_with_images.tsv \

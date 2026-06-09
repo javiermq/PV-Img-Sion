@@ -17,14 +17,14 @@ from torch.utils.data import Dataset, DataLoader
 # ============================================================
 
 TSV_PATH = Path("data/weather_with_images.tsv")
-IMAGE_CACHE_PATH = Path("data/images_cache_128.pt")
-IMG_SIZE = 128
+IMAGE_CACHE_PATH = Path("data/images_cache_gray.pt")
+IMG_SIZE = 64
 
 # Ventana temporal. Si tus datos son cada 5 min:
 # W=8 -> 40 minutos
 W = 8
 
-EXPECTED_CACHE_MODE = "bluewhite"
+EXPECTED_CACHE_MODE = "gray"
 EXPECTED_IMAGE_CHANNELS = 1
 
 BATCH_SIZE = 16
@@ -41,9 +41,9 @@ torch.backends.cudnn.deterministic = False
 SEED = 42
 NUM_WORKERS = 2
 
-MODEL_OUT = "best_image_only_lstm_cache_bluewhite_no_autoreg.pt"
-PREDICTIONS_OUT = "eval_predictions_image_only_lstm_cache_bluewhite_no_autoreg.tsv"
-PLOT_OUT = "eval_timeline_image_only_lstm_cache_bluewhite_no_autoreg.png"
+MODEL_OUT = "best_image_only_lstm_cache_gray_no_autoreg.pt"
+PREDICTIONS_OUT = "eval_predictions_image_only_lstm_cache_gray_no_autoreg.tsv"
+PLOT_OUT = "eval_timeline_image_only_lstm_cache_gray_no_autoreg.png"
 
 # Early stopping
 EARLY_STOPPING_PATIENCE = 8
@@ -78,9 +78,9 @@ IMG_EMB_DIM = 128
 
 N_FOLDS = 5
 
-CV_SUMMARY_OUT = "cv5_temporal_scene_metrics_image_only_cache_bluewhite_no_autoreg.tsv"
-CV_ALL_PREDICTIONS_OUT = "cv5_temporal_all_predictions_image_only_cache_bluewhite_no_autoreg.tsv"
-CV_PRODUCTION_SCENE_METRICS_OUT = "cv5_production_scene_metrics_image_only_cache_bluewhite_no_autoreg.tsv"
+CV_SUMMARY_OUT = "cv5_temporal_scene_metrics_image_only_cache_gray_no_autoreg.tsv"
+CV_ALL_PREDICTIONS_OUT = "cv5_temporal_all_predictions_image_only_cache_gray_no_autoreg.tsv"
+CV_PRODUCTION_SCENE_METRICS_OUT = "cv5_production_scene_metrics_image_only_cache_gray_no_autoreg.tsv"
 
 
 # ============================================================
@@ -109,7 +109,7 @@ def load_image_cache(cache_path):
             f"No existe el cache de imágenes: {cache_path}.\n"
             "Créalo antes con algo como:\n"
             "python create_images_cache.py --tsv data/weather_with_images.tsv "
-            "--out data/images_cache.pt --root . --image-size 64 --mode bluewhite"
+            "--out data/images_cache_gray.pt --root . --image-size 64 --mode gray"
         )
 
     cache = torch.load(
@@ -145,7 +145,7 @@ def load_image_cache(cache_path):
     if mode != EXPECTED_CACHE_MODE:
         raise RuntimeError(
             f"El cache está en modo '{mode}', pero este script espera '{EXPECTED_CACHE_MODE}'.\n"
-            "Recréalo con: --mode bluewhite"
+            "Recréalo con: --mode gray"
         )
 
     if channels != EXPECTED_IMAGE_CHANNELS or images.shape[1] != EXPECTED_IMAGE_CHANNELS:
@@ -1143,7 +1143,7 @@ def run_one_temporal_fold(
                     "image_cache_path": str(IMAGE_CACHE_PATH),
                     "image_cache_mode": EXPECTED_CACHE_MODE,
                     "image_channels": EXPECTED_IMAGE_CHANNELS,
-                    "model_type": "image_only_lstm_cache_bluewhite_no_autoreg_cv5_temporal",
+                    "model_type": "image_only_lstm_cache_gray_no_autoreg_cv5_temporal",
                     "fold_id": fold_id,
                     "n_folds": N_FOLDS,
                     "uses_weather_as_input": False,
@@ -1314,7 +1314,7 @@ def main():
     print(f"BATCH_SIZE: {BATCH_SIZE}")
     print(f"EARLY_STOPPING_PATIENCE: {EARLY_STOPPING_PATIENCE}")
     print(f"MAX_IMAGE_AGE_MINUTES: {MAX_IMAGE_AGE_MINUTES}")
-    print("Modo: SOLO imágenes cacheadas 1 canal bluewhite")
+    print("Modo: SOLO imágenes cacheadas 1 canal gray")
     print("Validación: 5-fold cross-validation por bloques temporales ordenados")
     print("Cada escena temporal es un 20% consecutivo de los samples.")
     print("Weather/tabular como input: NO")
