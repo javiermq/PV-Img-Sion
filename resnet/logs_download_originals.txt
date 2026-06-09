@@ -1,0 +1,117 @@
+Originals to download: 15160
+Listing written: data\sion\files_from_metadata.txt
+
+Descargando 15160 archivos uno a uno en: data\sion
+
+[1/15160] /June-Aug/06/02/20250602_060000_Pi03_capture_22518_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_060000_Pi03_capture_22518_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_060000_Pi03_capture_22518_11_Cam0.jpg
+
+[2/15160] /June-Aug/06/02/20250602_060500_Pi03_capture_22523_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_060500_Pi03_capture_22523_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_060500_Pi03_capture_22523_11_Cam0.jpg
+
+[3/15160] /June-Aug/06/02/20250602_061000_Pi03_capture_22528_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_061000_Pi03_capture_22528_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_061000_Pi03_capture_22528_11_Cam0.jpg
+
+[4/15160] /June-Aug/06/02/20250602_061500_Pi03_capture_22533_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_061500_Pi03_capture_22533_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_061500_Pi03_capture_22533_11_Cam0.jpg
+
+[5/15160] /June-Aug/06/02/20250602_062000_Pi03_capture_22538_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_062000_Pi03_capture_22538_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_062000_Pi03_capture_22538_11_Cam0.jpg
+
+[6/15160] /June-Aug/06/02/20250602_062500_Pi03_capture_22543_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_062500_Pi03_capture_22543_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_062500_Pi03_capture_22543_11_Cam0.jpg
+
+[7/15160] /June-Aug/06/02/20250602_063000_Pi03_capture_22548_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_063000_Pi03_capture_22548_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_063000_Pi03_capture_22548_11_Cam0.jpg
+
+[8/15160] /June-Aug/06/02/20250602_063500_Pi03_capture_22553_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_063500_Pi03_capture_22553_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_063500_Pi03_capture_22553_11_Cam0.jpg
+
+[9/15160] /June-Aug/06/02/20250602_064000_Pi03_capture_22558_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_064000_Pi03_capture_22558_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_064000_Pi03_capture_22558_11_Cam0.jpg
+
+[10/15160] /June-Aug/06/02/20250602_064500_Pi03_capture_22563_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_064500_Pi03_capture_22563_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_064500_Pi03_capture_22563_11_Cam0.jpg
+
+[11/15160] /June-Aug/06/02/20250602_065000_Pi03_capture_22568_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_065000_Pi03_capture_22568_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_065000_Pi03_capture_22568_11_Cam0.jpg
+
+[12/15160] /June-Aug/06/02/20250602_065500_Pi03_capture_22573_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_065500_Pi03_capture_22573_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_065500_Pi03_capture_22573_11_Cam0.jpg
+
+[13/15160] /June-Aug/06/02/20250602_070000_Pi03_capture_22578_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_070000_Pi03_capture_22578_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_070000_Pi03_capture_22578_11_Cam0.jpg
+
+[14/15160] /June-Aug/06/02/20250602_070500_Pi03_capture_22583_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_070500_Pi03_capture_22583_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_070500_Pi03_capture_22583_11_Cam0.jpg
+
+[15/15160] /June-Aug/06/02/20250602_071000_Pi03_capture_22588_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_071000_Pi03_capture_22588_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_071000_Pi03_capture_22588_11_Cam0.jpg
+
+[16/15160] /June-Aug/06/02/20250602_071500_Pi03_capture_22593_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_071500_Pi03_capture_22593_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_071500_Pi03_capture_22593_11_Cam0.jpg
+
+[17/15160] /June-Aug/06/02/20250602_072000_Pi03_capture_22598_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_072000_Pi03_capture_22598_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_072000_Pi03_capture_22598_11_Cam0.jpg
+
+[18/15160] /June-Aug/06/02/20250602_072500_Pi03_capture_22603_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_072500_Pi03_capture_22603_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_072500_Pi03_capture_22603_11_Cam0.jpg
+
+[19/15160] /June-Aug/06/02/20250602_073000_Pi03_capture_22608_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_073000_Pi03_capture_22608_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_073000_Pi03_capture_22608_11_Cam0.jpg
+
+[20/15160] /June-Aug/06/02/20250602_073500_Pi03_capture_22613_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_073500_Pi03_capture_22613_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_073500_Pi03_capture_22613_11_Cam0.jpg
+
+[21/15160] /June-Aug/06/02/20250602_074000_Pi03_capture_22618_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_074000_Pi03_capture_22618_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_074000_Pi03_capture_22618_11_Cam0.jpg
+
+[22/15160] /June-Aug/06/02/20250602_074500_Pi03_capture_22623_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_074500_Pi03_capture_22623_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_074500_Pi03_capture_22623_11_Cam0.jpg
+
+[23/15160] /June-Aug/06/02/20250602_075000_Pi03_capture_22628_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_075000_Pi03_capture_22628_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_075000_Pi03_capture_22628_11_Cam0.jpg
+
+[24/15160] /June-Aug/06/02/20250602_075500_Pi03_capture_22633_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_075500_Pi03_capture_22633_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_075500_Pi03_capture_22633_11_Cam0.jpg
+
+[25/15160] /June-Aug/06/02/20250602_080000_Pi03_capture_22638_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_080000_Pi03_capture_22638_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_080000_Pi03_capture_22638_11_Cam0.jpg
+
+[26/15160] /June-Aug/06/02/20250602_080500_Pi03_capture_22643_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_080500_Pi03_capture_22643_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_080500_Pi03_capture_22643_11_Cam0.jpg
+
+[27/15160] /June-Aug/06/02/20250602_081000_Pi03_capture_22648_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_081000_Pi03_capture_22648_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_081000_Pi03_capture_22648_11_Cam0.jpg
+
+[28/15160] /June-Aug/06/02/20250602_081500_Pi03_capture_22653_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_081500_Pi03_capture_22653_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_081500_Pi03_capture_22653_11_Cam0.jpg
+
+[29/15160] /June-Aug/06/02/20250602_082000_Pi03_capture_22658_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_082000_Pi03_capture_22658_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_082000_Pi03_capture_22658_11_Cam0.jpg
+
+[30/15160] /June-Aug/06/02/20250602_082500_Pi03_capture_22663_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_082500_Pi03_capture_22663_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_082500_Pi03_capture_22663_11_Cam0.jpg
+
+[31/15160] /June-Aug/06/02/20250602_083000_Pi03_capture_22668_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_083000_Pi03_capture_22668_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_083000_Pi03_capture_22668_11_Cam0.jpg
+
+[32/15160] /June-Aug/06/02/20250602_083500_Pi03_capture_22673_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_083500_Pi03_capture_22673_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_083500_Pi03_capture_22673_11_Cam0.jpg
+
+[33/15160] /June-Aug/06/02/20250602_084000_Pi03_capture_22678_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_084000_Pi03_capture_22678_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_084000_Pi03_capture_22678_11_Cam0.jpg
+
+[34/15160] /June-Aug/06/02/20250602_084500_Pi03_capture_22683_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_084500_Pi03_capture_22683_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_084500_Pi03_capture_22683_11_Cam0.jpg
+
+[35/15160] /June-Aug/06/02/20250602_085000_Pi03_capture_22688_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_085000_Pi03_capture_22688_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_085000_Pi03_capture_22688_11_Cam0.jpg
+
+[36/15160] /June-Aug/06/02/20250602_085500_Pi03_capture_22693_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_085500_Pi03_capture_22693_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_085500_Pi03_capture_22693_11_Cam0.jpg
+
+[37/15160] /June-Aug/06/02/20250602_090000_Pi03_capture_22698_11_Cam0.jpg
+OK: /June-Aug/06/02/20250602_090000_Pi03_capture_22698_11_Cam0.jpg -> data\sion\June-Aug\06\02\20250602_090000_Pi03_capture_22698_11_Cam0.jpg
+
+[38/15160] /June-Aug/06/02/20250602_090500_Pi03_capture_22703_11_Cam0.jpg

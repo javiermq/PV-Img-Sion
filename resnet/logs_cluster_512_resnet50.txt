@@ -1,0 +1,29 @@
+[2026-05-31 18:47:37] START variant=512 model=resnet50
+Loaded 14080 image records with production values.
+PV hour filter kept UTC hours [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] and removed [19].
+Created class folders under outputs\pv_clusters_512_resnet50.
+Extracted features for 32/14080 images
+Extracted features for 640/14080 images
+Extracted features for 1280/14080 images
+Extracted features for 1920/14080 images
+Extracted features for 2560/14080 images
+Extracted features for 3200/14080 images
+Extracted features for 3840/14080 images
+Extracted features for 4480/14080 images
+Extracted features for 5120/14080 images
+Extracted features for 5760/14080 images
+Extracted features for 6400/14080 images
+Extracted features for 7040/14080 images
+Extracted features for 7680/14080 images
+Extracted features for 8320/14080 images
+Extracted features for 8960/14080 images
+Extracted features for 9600/14080 images
+Extracted features for 10240/14080 images
+Extracted features for 10880/14080 images
+Extracted features for 11520/14080 images
+Extracted features for 12160/14080 images
+Extracted features for 12800/14080 images
+Extracted features for 13440/14080 images
+Extracted features for 14080/14080 images
+Done. Feature matrix shape: (14080, 2048)
+[2026-05-31 18:52:14] DONE variant=512 model=resnet50
