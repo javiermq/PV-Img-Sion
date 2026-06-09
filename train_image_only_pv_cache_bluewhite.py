@@ -17,12 +17,13 @@ from torch.utils.data import Dataset, DataLoader
 # ============================================================
 
 TSV_PATH = Path("data/weather_with_images.tsv")
-IMAGE_CACHE_PATH = Path("data/images_cache.pt")
+IMAGE_CACHE_PATH = Path("data/images_cache_128.pt")
+IMG_SIZE = 128
 
 # Ventana temporal. Si tus datos son cada 5 min:
 # W=8 -> 40 minutos
 W = 8
-IMG_SIZE = 64
+
 EXPECTED_CACHE_MODE = "bluewhite"
 EXPECTED_IMAGE_CHANNELS = 1
 
