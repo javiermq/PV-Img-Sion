@@ -20,9 +20,9 @@ TSV_PATH = Path("data/weather_with_images.tsv")
 W = 8
 
 BATCH_SIZE = 16
-EPOCHS = 50
+EPOCHS = 25
 LR = 1e-3
-TRAIN_RATIO = 0.9
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
