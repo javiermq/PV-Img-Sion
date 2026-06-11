@@ -72,7 +72,7 @@ EPS = 1e-8
 # ViT muy ligero. Trata las T imagenes anteriores grises como canales de un solo bloque.
 IMG_EMB_DIM = 64
 VIT_PATCH_SIZE = 8
-VIT_DEPTH = 3
+VIT_DEPTH = 4
 VIT_HEADS = 4
 VIT_MLP_DIM = 128
 VIT_DROPOUT = 0.10
